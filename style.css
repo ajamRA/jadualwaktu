@@ -63,3 +63,69 @@ body {
   .teacher-name { width: fit-content; }
   .admin-grid { grid-template-columns: 1fr; }
 }
+
+#bertugasTable .slot-cell{cursor:default;background:#fff;}
+.bertugas-layout {
+  min-width: 920px;
+}
+.bertugas-layout th,
+.bertugas-layout td {
+  height: 42px;
+  font-size: 0.95rem;
+}
+.bertugas-layout .section-title {
+  background: #f7f7f7;
+  font-weight: 800;
+}
+.bertugas-layout .meta-row {
+  background: #fcfcfc;
+  text-align: left;
+  padding-left: 8px;
+  font-size: 0.85rem;
+}
+.bertugas-layout .section-head {
+  background: #d7d7d7;
+  font-weight: 800;
+}
+.bertugas-layout .section-subhead {
+  background: #efefef;
+  font-weight: 700;
+}
+.bertugas-layout .small-head {
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: #f2f2f2;
+}
+.bertugas-layout .bold-center {
+  font-weight: 700;
+  text-align: center;
+}
+.bertugas-layout .names-row td {
+  font-style: italic;
+}
+
+@media (max-width: 760px) {
+  .bertugas-layout {
+    min-width: 100%;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .bertugas-layout th,
+  .bertugas-layout td {
+    font-size: 0.74rem;
+    padding: 4px 3px;
+    height: auto;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .bertugas-layout .meta-row {
+    font-size: 0.68rem;
+    line-height: 1.25;
+  }
+
+  .bertugas-layout .small-head {
+    font-size: 0.68rem;
+  }
+}

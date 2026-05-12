@@ -32,33 +32,41 @@
 
     <section id="tab-bertugas" class="tab-panel">
       <h2>Jadual Bertugas</h2>
-      <p class="hint">Upload fail dalam tab Admin. Lepas upload, fail akan dipapar di sini.</p>
-      <div id="bertugasList" class="file-list"></div>
+      <div class="table-wrap"><table id="bertugasTable" class="jadual"></table></div>
+      <p class="hint">Susunan sama macam jadual kelas: hari di kiri, slot tugasan ke kanan.</p>
     </section>
 
     <section id="tab-admin" class="tab-panel">
       <h2>Panel Admin</h2>
       <div class="admin-grid">
         <div class="card">
-          <h3>Upload Jadual Waktu Baru (PDF/JPEG/PNG)</h3>
+          <h3>Upload Rujukan Jadual Waktu (PDF/JPEG/PNG)</h3>
           <input id="uploadJadual" type="file" accept="application/pdf,image/jpeg,image/png" />
-          <p class="hint">Sistem simpan fail rujukan. Lepas tu update jadual ikut editor di bawah.</p>
           <div id="jadualUploadInfo" class="upload-info"></div>
         </div>
 
         <div class="card">
-          <h3>Upload Jadual Bertugas (PDF/JPEG/PNG)</h3>
+          <h3>Upload Rujukan Jadual Bertugas (PDF/JPEG/PNG)</h3>
           <input id="uploadBertugas" type="file" accept="application/pdf,image/jpeg,image/png" multiple />
           <div id="bertugasUploadInfo" class="upload-info"></div>
         </div>
       </div>
 
       <div class="card">
-        <h3>Edit Jadual (30 Minit Setiap Kotak)</h3>
+        <h3>Edit Jadual Waktu (30 Minit Setiap Kotak)</h3>
         <p class="hint">Format isi: `SN|3 R` atau kosongkan kalau tiada kelas.</p>
         <div class="table-wrap"><table id="editorTable" class="jadual editor"></table></div>
         <div class="toolbar">
-          <button id="saveJadualBtn" class="btn">Simpan & Publish Jadual</button>
+          <button id="saveJadualBtn" class="btn">Simpan & Publish Jadual Waktu</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Edit Jadual Bertugas</h3>
+        <p class="hint">Isi nama guru ikut slot. Boleh terus publish ke tab Jadual Bertugas.</p>
+        <div class="table-wrap"><table id="bertugasEditorTable" class="jadual editor"></table></div>
+        <div class="toolbar">
+          <button id="saveBertugasBtn" class="btn">Simpan & Publish Jadual Bertugas</button>
         </div>
       </div>
     </section>
@@ -67,3 +75,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+
