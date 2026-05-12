@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jadual Guru Pro</title>
+  <meta name="theme-color" content="#1f2d44" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="logo-wrap"><div class="logo">SK</div></div>
+      <h1 class="title">JADUAL WAKTU 2026</h1>
+      <div class="teacher-name">MUHAMAD NURAZAM BIN RAHIM</div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="jadual">Jadual Waktu</button>
+      <button class="tab-btn" data-tab="bertugas">Jadual Bertugas</button>
+      <button class="tab-btn" data-tab="admin">Admin</button>
+    </nav>
+
+    <section id="tab-jadual" class="tab-panel active">
+      <div class="toolbar">
+        <button id="clearReliefBtn" class="btn secondary">Reset Relief</button>
+      </div>
+      <div class="table-wrap"><table id="jadualTable" class="jadual"></table></div>
+      <p class="hint">Klik mana-mana kotak untuk tanda relief merah. Klik lagi untuk buang.</p>
+    </section>
+
+    <section id="tab-bertugas" class="tab-panel">
+      <h2>Jadual Bertugas</h2>
+      <p class="hint">Upload fail dalam tab Admin. Lepas upload, fail akan dipapar di sini.</p>
+      <div id="bertugasList" class="file-list"></div>
+    </section>
+
+    <section id="tab-admin" class="tab-panel">
+      <h2>Panel Admin</h2>
+      <div class="admin-grid">
+        <div class="card">
+          <h3>Upload Jadual Waktu Baru (PDF/JPEG/PNG)</h3>
+          <input id="uploadJadual" type="file" accept="application/pdf,image/jpeg,image/png" />
+          <p class="hint">Sistem simpan fail rujukan. Lepas tu update jadual ikut editor di bawah.</p>
+          <div id="jadualUploadInfo" class="upload-info"></div>
+        </div>
+
+        <div class="card">
+          <h3>Upload Jadual Bertugas (PDF/JPEG/PNG)</h3>
+          <input id="uploadBertugas" type="file" accept="application/pdf,image/jpeg,image/png" multiple />
+          <div id="bertugasUploadInfo" class="upload-info"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Edit Jadual (30 Minit Setiap Kotak)</h3>
+        <p class="hint">Format isi: `SN|3 R` atau kosongkan kalau tiada kelas.</p>
+        <div class="table-wrap"><table id="editorTable" class="jadual editor"></table></div>
+        <div class="toolbar">
+          <button id="saveJadualBtn" class="btn">Simpan & Publish Jadual</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
