@@ -1,4 +1,6 @@
-const DAYS = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
+const buildId = "Build 2026-05-14-1";
+const oldTitle = document.title;
+document.title = `${oldTitle} | ${buildId}`;const DAYS = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
 const TIMES = [
   "1:00-1:30", "1:30-2:00", "2:00-2:30", "2:30-3:00", "3:00-3:30",
   "3:30-4:00", "4:00-4:30", "4:30-5:00", "5:00-5:30", "5:30-6:00", "6:00-6:30"
@@ -917,6 +919,7 @@ fetch("./guru-schedules.json")
   })
   .catch(() => {})
   .finally(init);
+
 
 
 
