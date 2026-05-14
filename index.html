@@ -18,16 +18,44 @@
 
     <nav class="tabs">
       <button class="tab-btn active" data-tab="jadual">Jadual Waktu</button>
+      <button class="tab-btn" data-tab="relief">Relief</button>
       <button class="tab-btn" data-tab="bertugas">Jadual Bertugas</button>
       <button class="tab-btn" data-tab="admin">Admin</button>
     </nav>
 
     <section id="tab-jadual" class="tab-panel active">
       <div class="toolbar">
+        <label for="guruSelect">Pilih Guru:</label>
+        <select id="guruSelect"></select>
         <button id="clearReliefBtn" class="btn secondary">Reset Relief</button>
       </div>
       <div class="table-wrap"><table id="jadualTable" class="jadual"></table></div>
       <p class="hint">Klik mana-mana kotak untuk tanda relief merah. Klik lagi untuk buang.</p>
+    </section>
+
+    <section id="tab-relief" class="tab-panel">
+      <h2>Perancang Relief</h2>
+      <div class="relief-grid">
+        <div class="card">
+          <h3>Senarai Guru (Tick atau Drag)</h3>
+          <div id="reliefTeacherList" class="teacher-list"></div>
+        </div>
+        <div class="card">
+          <h3>Guru Tidak Hadir (Drop Sini)</h3>
+          <div id="absentDropzone" class="dropzone">Drag nama guru ke sini</div>
+          <div id="absentList" class="absent-list"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Jadual Cikgu Tidak Hadir (Klik Nama)</h3>
+        <p id="reliefFocusLabel" class="hint">Belum pilih cikgu.</p>
+        <div class="toolbar">
+          <label for="availableSlotSelect">Slot Semasa:</label>
+          <select id="availableSlotSelect"></select>
+        </div>
+        <div id="availableTeachers" class="absent-list"></div>
+        <div class="table-wrap"><table id="reliefTeacherTable" class="jadual"></table></div>
+      </div>
     </section>
 
     <section id="tab-bertugas" class="tab-panel">
@@ -42,6 +70,8 @@
         <div class="card">
           <h3>Upload Rujukan Jadual Waktu (PDF/JPEG/PNG)</h3>
           <input id="uploadJadual" type="file" accept="application/pdf,image/jpeg,image/png" />
+          <p class="hint">Untuk dropdown ramai guru, upload fail `guru-schedules.json`.</p>
+          <input id="uploadGuruJson" type="file" accept="application/json" />
           <div id="jadualUploadInfo" class="upload-info"></div>
         </div>
 
@@ -72,7 +102,18 @@
     </section>
   </main>
 
+  <div id="assignModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <h3 id="assignTitle">Pilih Cikgu Relief</h3>
+      <div id="assignList" class="teacher-list"></div>
+      <div class="toolbar">
+        <button id="closeAssignModal" class="btn secondary">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
+
 

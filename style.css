@@ -57,11 +57,29 @@ body {
 .file-list { display: grid; gap: 12px; }
 .file-item { background: #fff; border: 1px solid #d7deea; border-radius: 10px; padding: 10px; }
 .file-item iframe, .file-item img { width: 100%; max-height: 420px; border: 1px solid #ccd5e2; border-radius: 8px; object-fit: contain; background: #fff; }
+.relief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.teacher-list { max-height: 320px; overflow: auto; display: grid; gap: 6px; padding-right: 4px; }
+.teacher-item { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fff; }
+.teacher-chip { display: inline-block; border: 1px solid #c8d4e7; padding: 5px 8px; border-radius: 999px; font-size: .85rem; background: #f5f9ff; cursor: grab; }
+.dropzone { min-height: 64px; border: 2px dashed #90a4c2; border-radius: 10px; padding: 10px; color: #3f4d63; background: #f8fbff; }
+.dropzone.drag-over { background: #e8f1ff; border-color: #1f63ff; }
+.absent-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.absent-tag { background: #ffe5e5; color: #a32020; padding: 6px 10px; border-radius: 999px; border: 1px solid #ffc5c5; font-weight: 700; }
+.absent-tag button { margin-left: 6px; border: 0; background: transparent; color: #a32020; cursor: pointer; font-weight: 700; }
+.ghost-btn { border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; }
+.suggestions { display: grid; gap: 10px; }
+.sug-item { border: 1px solid #d9e1ed; border-radius: 10px; padding: 10px; background: #fff; }
+.sug-title { font-weight: 800; color: #1f2d44; margin-bottom: 4px; }
+.sug-free { font-size: .92rem; color: #2d3e55; }
+.modal-backdrop { position: fixed; inset: 0; background: #0007; display: grid; place-items: center; z-index: 60; }
+.modal-backdrop.hidden { display: none; }
+.modal-card { width: min(520px, 94vw); max-height: 78vh; overflow: auto; background: #fff; border-radius: 12px; padding: 12px; border: 1px solid #d7deea; }
 
 @media (max-width: 900px) {
   .topbar { grid-template-columns: 1fr; }
   .teacher-name { width: fit-content; }
   .admin-grid { grid-template-columns: 1fr; }
+  .relief-grid { grid-template-columns: 1fr; }
 }
 
 #bertugasTable .slot-cell{cursor:default;background:#fff;}
