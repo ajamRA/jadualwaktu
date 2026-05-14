@@ -21,6 +21,7 @@
 
     <nav class="tabs">
       <button class="tab-btn active" data-tab="jadual">Jadual Waktu</button>
+      <button class="tab-btn" data-tab="kelas">Jadual Kelas</button>
       <button class="tab-btn" data-tab="relief">Relief</button>
       <button class="tab-btn" data-tab="bertugas">Jadual Bertugas</button>
       <button class="tab-btn" data-tab="admin">Admin</button>
@@ -36,6 +37,28 @@
 
     <section id="tab-relief" class="tab-panel">
       <h2>Perancang Relief</h2>
+      <div class="card">
+        <h3>Pelan Harian</h3>
+        <div class="toolbar">
+          <label for="reliefDate">Tarikh:</label>
+          <input id="reliefDate" type="date" />
+          <button id="loadReliefPlanBtn" class="btn secondary">Load Plan</button>
+          <button id="saveReliefPlanBtn" class="btn">Save Plan</button>
+          <button id="approveReliefPlanBtn" class="btn secondary">Approve + Lock</button>
+          <button id="exportReliefPdfBtn" class="btn secondary">Export PDF</button>
+        </div>
+        <p id="reliefPlanStatus" class="hint">Status: Draft</p>
+      </div>
+      <div class="card">
+        <h3>Tetapan Relief</h3>
+        <div class="toolbar">
+          <label for="maxReliefPerDay">Max Relief / Hari:</label>
+          <input id="maxReliefPerDay" type="number" min="1" max="10" value="2" style="width:90px" />
+          <button id="saveReliefRulesBtn" class="btn">Simpan Tetapan</button>
+        </div>
+        <p class="hint">Blocklist (1 baris 1 rule): `NAMA_GURU|HARI|MASA` contoh `AINUN|ISNIN|1:30-2:00`</p>
+        <textarea id="reliefBlocklist" rows="4" style="width:100%"></textarea>
+      </div>
       <div class="relief-grid">
         <div class="card">
           <h3>Senarai Guru (Tick atau Drag)</h3>
@@ -57,6 +80,19 @@
         <div id="availableTeachers" class="absent-list"></div>
         <div class="table-wrap"><table id="reliefTeacherTable" class="jadual"></table></div>
       </div>
+      <div class="card">
+        <h3>Final Relief Plan</h3>
+        <div id="finalReliefPlan" class="suggestions"></div>
+      </div>
+    </section>
+
+    <section id="tab-kelas" class="tab-panel">
+      <h2>Jadual Waktu Kelas</h2>
+      <div class="toolbar">
+        <label for="classSelect">Pilih Kelas:</label>
+        <select id="classSelect"></select>
+      </div>
+      <div class="table-wrap"><table id="classTable" class="jadual"></table></div>
     </section>
 
     <section id="tab-bertugas" class="tab-panel">

@@ -89,7 +89,9 @@ const KEYS = {
   bertugasData: "jadual-v2-bertugas-data",
   guruSchedules: "jadual-v3-guru-schedules",
   guruSelected: "jadual-v2-guru-selected",
-  reliefScore: "jadual-v2-relief-score"
+  reliefScore: "jadual-v2-relief-score",
+  reliefRules: "jadual-v1-relief-rules",
+  reliefPlans: "jadual-v1-relief-plans"
 };
 
 const reliefSet = new Set(JSON.parse(localStorage.getItem(KEYS.relief) || "[]"));
@@ -100,9 +102,15 @@ let selectedGuru = localStorage.getItem(KEYS.guruSelected) || "MANUAL";
 const absentTeachers = new Set();
 let focusAbsentTeacher = "";
 let focusSlotKey = "";
-const reliefAssignments = {};
+let reliefAssignments = {};
 let slotSubjectMap = {};
 const reliefScore = loadReliefScore();
+let reliefRules = loadReliefRules();
+let classSchedules = {};
+let selectedClass = "";
+let reliefPlans = loadReliefPlans();
+let currentReliefDate = "";
+let isReliefPlanApproved = false;
 
 function blocksToMap(blocks) {
   const map = {};
@@ -144,6 +152,122 @@ function loadReliefScore() {
   const raw = localStorage.getItem(KEYS.reliefScore);
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function loadReliefRules() {
+  const raw = localStorage.getItem(KEYS.reliefRules);
+  if (!raw) return { maxPerDay: 2, blocklist: [] };
+  try {
+    const v = JSON.parse(raw);
+    return {
+      maxPerDay: Number(v.maxPerDay || 2),
+      blocklist: Array.isArray(v.blocklist) ? v.blocklist : []
+    };
+  } catch {
+    return { maxPerDay: 2, blocklist: [] };
+  }
+}
+
+function loadReliefPlans() {
+  const raw = localStorage.getItem(KEYS.reliefPlans);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function saveReliefPlans() {
+  localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans));
+}
+
+function setReliefStatus(text) {
+  const el = document.getElementById("reliefPlanStatus");
+  if (el) el.textContent = text;
+}
+
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function getCurrentPlanPayload() {
+  return {
+    assignments: reliefAssignments,
+    absentTeachers: [...absentTeachers],
+    approved: isReliefPlanApproved,
+    rules: reliefRules
+  };
+}
+
+function applyPlanPayload(plan) {
+  reliefAssignments = { ...(plan.assignments || {}) };
+  absentTeachers.clear();
+  (plan.absentTeachers || []).forEach((x) => absentTeachers.add(x));
+  isReliefPlanApproved = !!plan.approved;
+  if (plan.rules) reliefRules = plan.rules;
+  renderReliefRulesForm();
+  setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"}`);
+}
+
+function loadPlanByDate(dateStr) {
+  currentReliefDate = dateStr || todayIso();
+  const input = document.getElementById("reliefDate");
+  if (input) input.value = currentReliefDate;
+  const found = reliefPlans[currentReliefDate];
+  if (found) {
+    applyPlanPayload(found);
+  } else {
+    reliefAssignments = {};
+    absentTeachers.clear();
+    isReliefPlanApproved = false;
+    setReliefStatus("Status: Draft (Plan baru)");
+  }
+  renderReliefUi();
+}
+
+function saveCurrentPlan() {
+  if (!currentReliefDate) currentReliefDate = todayIso();
+  reliefPlans[currentReliefDate] = getCurrentPlanPayload();
+  saveReliefPlans();
+  setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"} | Saved ${currentReliefDate}`);
+}
+
+function approveCurrentPlan() {
+  isReliefPlanApproved = true;
+  saveCurrentPlan();
+  renderReliefUi();
+}
+
+function saveReliefRules() {
+  localStorage.setItem(KEYS.reliefRules, JSON.stringify(reliefRules));
+}
+
+function renderReliefRulesForm() {
+  const maxEl = document.getElementById("maxReliefPerDay");
+  const txt = document.getElementById("reliefBlocklist");
+  if (!maxEl || !txt) return;
+  maxEl.value = String(reliefRules.maxPerDay || 2);
+  txt.value = (reliefRules.blocklist || []).join("\n");
+}
+
+function getAssignedCountByTeacherDay() {
+  const counts = {};
+  Object.entries(reliefAssignments).forEach(([k]) => {
+    const parts = k.split("|");
+    if (parts.length < 3) return;
+    const assignee = reliefAssignments[k];
+    if (!assignee) return;
+    const day = parts[1];
+    const key = `${assignee}|${day}`;
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return counts;
+}
+
+function isBlockedByRule(teacher, day, time) {
+  const token = `${teacher}|${day}|${time}`.toUpperCase();
+  return (reliefRules.blocklist || []).some((r) => r.toUpperCase() === token);
 }
 
 function activateTab(name) {
@@ -330,6 +454,65 @@ function getAllTeachers() {
   return Object.keys(guruSchedules).sort();
 }
 
+function buildClassSchedules() {
+  const out = {};
+  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+    Object.entries(map || {}).forEach(([key, val]) => {
+      if (!val || !val.includes("|")) return;
+      const [subj, cls] = val.split("|");
+      if (!cls) return;
+      if (!out[cls]) out[cls] = {};
+      out[cls][key] = `${subj}|${teacher}`;
+    });
+  });
+  classSchedules = out;
+}
+
+function renderClassOptions() {
+  const sel = document.getElementById("classSelect");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const classes = Object.keys(classSchedules).sort();
+  classes.forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c;
+    o.textContent = c;
+    sel.appendChild(o);
+  });
+  if (!selectedClass || !classes.includes(selectedClass)) selectedClass = classes[0] || "";
+  sel.value = selectedClass || "";
+}
+
+function buildClassTable() {
+  const table = document.getElementById("classTable");
+  if (!table) return;
+  table.innerHTML = "";
+  const map = classSchedules[selectedClass] || {};
+  const thead = document.createElement("thead");
+  thead.appendChild(buildTimeHeaderRow());
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const day of DAYS) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.className = "day-col";
+    th.textContent = day;
+    tr.appendChild(th);
+    TIMES.forEach((time) => {
+      const td = document.createElement("td");
+      td.className = "slot-cell";
+      const v = map[`${day}|${time}`] || "";
+      if (v.includes("|")) {
+        const [subj, teacher] = v.split("|");
+        td.innerHTML = `<div class="subjek">${subj}</div><div class="kelas">${teacher}</div>`;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+}
+
 function getSubjectTeachersMap() {
   const out = {};
   Object.entries(guruSchedules).forEach(([teacher, map]) => {
@@ -345,6 +528,7 @@ function getSubjectTeachersMap() {
 }
 
 function addAbsentTeacher(name) {
+  if (isReliefPlanApproved) return;
   if (!name) return;
   absentTeachers.add(name);
   if (!focusAbsentTeacher) focusAbsentTeacher = name;
@@ -352,6 +536,7 @@ function addAbsentTeacher(name) {
 }
 
 function removeAbsentTeacher(name) {
+  if (isReliefPlanApproved) return;
   absentTeachers.delete(name);
   if (focusAbsentTeacher === name) focusAbsentTeacher = [...absentTeachers][0] || "";
   renderReliefUi();
@@ -495,6 +680,7 @@ function buildReliefTeacherTable() {
         td.dataset.dropkey = k;
         td.addEventListener("dragover", (e) => e.preventDefault());
         td.addEventListener("drop", (e) => {
+          if (isReliefPlanApproved) return;
           e.preventDefault();
           const tName = e.dataTransfer.getData("text/plain");
           if (!tName) return;
@@ -502,6 +688,7 @@ function buildReliefTeacherTable() {
           renderReliefUi();
         });
         td.addEventListener("click", () => {
+          if (isReliefPlanApproved) return;
           focusSlotKey = k;
           openAssignModal(k);
           renderReliefUi();
@@ -529,8 +716,11 @@ function renderAvailableTeachers() {
   if (!focusAbsentTeacher || !focusSlotKey) return;
   const [day, time] = focusSlotKey.split("|");
   const all = getAllTeachers();
+  const dailyCounts = getAssignedCountByTeacherDay();
   const available = all.filter((t) => t !== focusAbsentTeacher && !absentTeachers.has(t) && !(guruSchedules[t] || {})[`${day}|${time}`]);
   const ranked = available
+    .filter((t) => !isBlockedByRule(t, day, time))
+    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
     .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
   const minScore = ranked.length ? ranked[0].score : 0;
@@ -547,6 +737,7 @@ function renderAvailableTeachers() {
 }
 
 function openAssignModal(slotKey) {
+  if (isReliefPlanApproved) return;
   const modal = document.getElementById("assignModal");
   const list = document.getElementById("assignList");
   const title = document.getElementById("assignTitle");
@@ -554,6 +745,7 @@ function openAssignModal(slotKey) {
   if (!focusAbsentTeacher || !slotKey) return;
 
   const [day, time] = slotKey.split("|");
+  const dailyCounts = getAssignedCountByTeacherDay();
   const subject = (slotSubjectMap[slotKey] || "").toUpperCase();
   const subjectMap = getSubjectTeachersMap();
   const teacherPool = subjectMap[subject] ? [...subjectMap[subject]] : [];
@@ -561,6 +753,8 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !isBlockedByRule(t, day, time))
+    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
     .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
   const minSubjectScore = candidatesSubject.length ? candidatesSubject[0].score : 0;
@@ -570,6 +764,8 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !isBlockedByRule(t, day, time))
+    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
     .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
   const minAnyScore = allFree.length ? allFree[0].score : 0;
@@ -584,6 +780,7 @@ function openAssignModal(slotKey) {
       row.style.textAlign = "left";
       row.textContent = `${prefix}${name} (score: ${score})`;
       row.addEventListener("click", () => {
+        if (isReliefPlanApproved) return;
         reliefAssignments[`${focusAbsentTeacher}|${slotKey}`] = name;
         reliefScore[name] = Number(reliefScore[name] || 0) + 1;
         saveReliefScore();
@@ -614,6 +811,7 @@ function bindReliefDropzone() {
   });
   zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
   zone.addEventListener("drop", (e) => {
+    if (isReliefPlanApproved) return;
     e.preventDefault();
     zone.classList.remove("drag-over");
     const name = e.dataTransfer.getData("text/plain");
@@ -626,6 +824,53 @@ function renderReliefUi() {
   renderAbsentList();
   buildReliefTeacherTable();
   renderAvailableTeachers();
+  renderFinalReliefPlan();
+}
+
+function renderFinalReliefPlan() {
+  const wrap = document.getElementById("finalReliefPlan");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const rows = Object.entries(reliefAssignments)
+    .map(([k, assignee]) => {
+      const [absent, day, time] = k.split("|");
+      return { absent, day, time, assignee };
+    })
+    .filter((r) => r.assignee)
+    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+
+  if (!rows.length) {
+    wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>";
+    return;
+  }
+  rows.forEach((r) => {
+    const d = document.createElement("div");
+    d.className = "sug-item";
+    d.innerHTML = `<div class="sug-title">${r.day} ${r.time}</div><div class="sug-free">Tak hadir: <b>${r.absent}</b> -> Relief: <b>${r.assignee}</b></div>`;
+    wrap.appendChild(d);
+  });
+}
+
+function exportReliefPlanPdf() {
+  const rows = Object.entries(reliefAssignments)
+    .map(([k, assignee]) => {
+      const [absent, day, time] = k.split("|");
+      return { absent, day, time, assignee };
+    })
+    .filter((r) => r.assignee)
+    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+  const date = currentReliefDate || todayIso();
+  const htmlRows = rows.map((r) => `<tr><td>${r.day}</td><td>${r.time}</td><td>${r.absent}</td><td>${r.assignee}</td></tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relief ${date}</title>
+    <style>body{font-family:Segoe UI,sans-serif;padding:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:8px;text-align:left}h2{margin:0 0 10px}</style>
+    </head><body><h2>Pelan Relief Harian - ${date}</h2>
+    <table><thead><tr><th>Hari</th><th>Masa</th><th>Cikgu Tak Hadir</th><th>Cikgu Relief</th></tr></thead><tbody>${htmlRows || "<tr><td colspan='4'>Tiada assignment</td></tr>"}</tbody></table>
+    <script>window.onload=()=>window.print()</script></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 function buildEditor() {
@@ -855,11 +1100,14 @@ async function handleUploadGuruJson(e) {
   }
   guruSchedules = parsed.teachers;
   saveGuruSchedules();
+  buildClassSchedules();
   renderGuruOptions();
+  renderClassOptions();
   selectedGuru = "MANUAL";
   localStorage.setItem(KEYS.guruSelected, selectedGuru);
   absentTeachers.clear();
   buildMainTable();
+  buildClassTable();
   renderReliefUi();
   alert(`Import berjaya: ${Object.keys(guruSchedules).length} guru.`);
 }
@@ -878,6 +1126,7 @@ function registerPwa() {
 function init() {
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
   document.getElementById("clearReliefBtn").addEventListener("click", () => {
+    if (isReliefPlanApproved) return;
     [...reliefSet].forEach((k) => {
       if (k.startsWith(`${selectedGuru}::`)) reliefSet.delete(k);
     });
@@ -896,6 +1145,30 @@ function init() {
   document.getElementById("availableSlotSelect").addEventListener("change", (e) => {
     focusSlotKey = e.target.value;
     renderAvailableTeachers();
+  });
+  document.getElementById("saveReliefRulesBtn").addEventListener("click", () => {
+    if (isReliefPlanApproved) return;
+    const maxEl = document.getElementById("maxReliefPerDay");
+    const txt = document.getElementById("reliefBlocklist");
+    const maxPerDay = Math.max(1, Number(maxEl.value || 2));
+    const blocklist = (txt.value || "")
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    reliefRules = { maxPerDay, blocklist };
+    saveReliefRules();
+    renderReliefUi();
+    alert("Tetapan relief disimpan.");
+  });
+  document.getElementById("loadReliefPlanBtn").addEventListener("click", () => {
+    loadPlanByDate(document.getElementById("reliefDate").value || todayIso());
+  });
+  document.getElementById("saveReliefPlanBtn").addEventListener("click", saveCurrentPlan);
+  document.getElementById("approveReliefPlanBtn").addEventListener("click", approveCurrentPlan);
+  document.getElementById("exportReliefPdfBtn").addEventListener("click", exportReliefPlanPdf);
+  document.getElementById("classSelect").addEventListener("change", (e) => {
+    selectedClass = e.target.value;
+    buildClassTable();
   });
   document.getElementById("closeAssignModal").addEventListener("click", () => {
     document.getElementById("assignModal").classList.add("hidden");
@@ -920,9 +1193,14 @@ function init() {
   bindTeacherPillGlobalTrigger();
 
   renderGuruOptions();
+  renderReliefRulesForm();
+  loadPlanByDate(todayIso());
+  buildClassSchedules();
+  renderClassOptions();
   bindReliefDropzone();
   renderReliefUi();
   buildMainTable();
+  buildClassTable();
   buildEditor();
   buildBertugasTable();
   buildBertugasEditor();
@@ -936,8 +1214,11 @@ fetch("./guru-schedules.json?v=20260514-2")
     if (data && data.teachers) {
       guruSchedules = data.teachers;
       saveGuruSchedules();
+      buildClassSchedules();
       renderGuruOptions();
+      renderClassOptions();
       buildMainTable();
+      buildClassTable();
       renderReliefUi();
     }
   })
