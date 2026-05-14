@@ -268,8 +268,29 @@ function openGuruPickerModal() {
   };
 
   const bindTap = (el, fn) => {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let moved = false;
+
     el.addEventListener("click", fn);
+    el.addEventListener("touchstart", (e) => {
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      moved = false;
+    }, { passive: true });
+
+    el.addEventListener("touchmove", (e) => {
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      if (Math.abs(t.clientX - touchStartX) > 8 || Math.abs(t.clientY - touchStartY) > 8) {
+        moved = true;
+      }
+    }, { passive: true });
+
     el.addEventListener("touchend", (e) => {
+      if (moved) return; // user sedang scroll, jangan trigger pilih
       e.preventDefault();
       fn();
     }, { passive: false });
