@@ -24,7 +24,8 @@ body {
 .logo-wrap { width: 72px; height: 72px; border-radius: 50%; border: 3px solid #2048a8; display: grid; place-items: center; background: #fff; }
 .logo { font-weight: 800; color: #2048a8; }
 .title { margin: 0; color: #14274f; letter-spacing: 1px; }
-.teacher-name { background: #ddd9ff; padding: 10px 16px; border-radius: 999px; font-weight: 700; }
+.teacher-name { background: #ddd9ff; padding: 10px 16px; border-radius: 999px; font-weight: 700; border: 0; cursor: pointer; }
+.teacher-name:hover { filter: brightness(0.97); }
 
 .tabs { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
 .tab-btn { border: 0; background: #d8e0ee; padding: 10px 14px; border-radius: 10px; font-weight: 700; cursor: pointer; }

@@ -246,6 +246,18 @@ function renderGuruOptions() {
   });
 
   sel.value = selectedGuru in Object.fromEntries([...sel.options].map((o) => [o.value, true])) ? selectedGuru : "MANUAL";
+  updateTeacherPill();
+}
+
+function getTeacherPillText() {
+  if (selectedGuru && selectedGuru !== "MANUAL") return selectedGuru;
+  return "MUHAMAD NURAZAM BIN RAHIM";
+}
+
+function updateTeacherPill() {
+  const pill = document.getElementById("teacherNameBtn");
+  if (!pill) return;
+  pill.textContent = getTeacherPillText();
 }
 
 function getAllTeachers() {
@@ -829,7 +841,13 @@ function init() {
   document.getElementById("guruSelect").addEventListener("change", (e) => {
     selectedGuru = e.target.value;
     localStorage.setItem(KEYS.guruSelected, selectedGuru);
+    updateTeacherPill();
     buildMainTable();
+  });
+  document.getElementById("teacherNameBtn").addEventListener("click", () => {
+    const sel = document.getElementById("guruSelect");
+    sel.scrollIntoView({ behavior: "smooth", block: "center" });
+    sel.focus();
   });
 
   renderGuruOptions();
