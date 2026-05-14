@@ -239,6 +239,13 @@ function approveCurrentPlan() {
   renderReliefUi();
 }
 
+function unlockCurrentPlan() {
+  isReliefPlanApproved = false;
+  saveCurrentPlan();
+  setReliefStatus("Status: Draft (Unlocked)");
+  renderReliefUi();
+}
+
 function saveReliefRules() {
   localStorage.setItem(KEYS.reliefRules, JSON.stringify(reliefRules));
 }
@@ -559,8 +566,13 @@ function renderReliefTeacherList() {
       <span class="teacher-chip" draggable="true">${name}</span>
     `;
     const checkbox = item.querySelector("input");
+    checkbox.disabled = isReliefPlanApproved;
     const chip = item.querySelector(".teacher-chip");
     checkbox.addEventListener("change", () => {
+      if (isReliefPlanApproved) {
+        checkbox.checked = absentTeachers.has(name);
+        return;
+      }
       if (checkbox.checked) addAbsentTeacher(name);
       else removeAbsentTeacher(name);
     });
@@ -1165,6 +1177,7 @@ function init() {
   });
   document.getElementById("saveReliefPlanBtn").addEventListener("click", saveCurrentPlan);
   document.getElementById("approveReliefPlanBtn").addEventListener("click", approveCurrentPlan);
+  document.getElementById("unlockReliefPlanBtn").addEventListener("click", unlockCurrentPlan);
   document.getElementById("exportReliefPdfBtn").addEventListener("click", exportReliefPlanPdf);
   document.getElementById("classSelect").addEventListener("change", (e) => {
     selectedClass = e.target.value;
