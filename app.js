@@ -160,15 +160,16 @@ function loadReliefScore() {
 
 function loadReliefRules() {
   const raw = localStorage.getItem(KEYS.reliefRules);
-  if (!raw) return { maxPerDay: 2, blocklist: [] };
+  if (!raw) return { maxPerDay: 2, blocklist: [], includeDutyRule: true };
   try {
     const v = JSON.parse(raw);
     return {
       maxPerDay: Number(v.maxPerDay || 2),
-      blocklist: Array.isArray(v.blocklist) ? v.blocklist : []
+      blocklist: Array.isArray(v.blocklist) ? v.blocklist : [],
+      includeDutyRule: v.includeDutyRule !== false
     };
   } catch {
-    return { maxPerDay: 2, blocklist: [] };
+    return { maxPerDay: 2, blocklist: [], includeDutyRule: true };
   }
 }
 
@@ -298,6 +299,8 @@ function renderReliefRulesForm() {
   if (!maxEl || !txt) return;
   maxEl.value = String(reliefRules.maxPerDay || 2);
   txt.value = (reliefRules.blocklist || []).join("\n");
+  const dutyEl = document.getElementById("includeDutyRule");
+  if (dutyEl) dutyEl.checked = reliefRules.includeDutyRule !== false;
   const sel = document.getElementById("blockTimeSelect");
   if (sel) {
     sel.innerHTML = "";
@@ -353,6 +356,39 @@ function getAssignedCountByTeacherDay() {
 function isBlockedByRule(teacher, day, time) {
   const token = `${teacher}|${day}|${time}`.toUpperCase();
   return (reliefRules.blocklist || []).some((r) => r.toUpperCase() === token);
+}
+
+function isTeacherOnDutyAtSlot(teacher, day, time) {
+  if (reliefRules.includeDutyRule === false) return false;
+  const dutyRows = [
+    "PAGAR WAKTU DATANG (MURID)",
+    "PAGAR (12.20 TENGAH HARI)",
+    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
+    "WAKTU REHAT (3.00-3.30)",
+    "WAKTU REHAT (3.30-4.00)",
+    "WAKTU BALIK (6.30 PETANG)",
+    "KAWALAN MURID (6.00 PETANG)",
+    "TUGAS KHAS"
+  ];
+
+  const assignedDutyRows = dutyRows.filter((row) => {
+    const cell = (bertugasMap[`${day}|${row}`] || "").toUpperCase();
+    return cell.split("/").map((x) => x.trim()).includes(teacher.toUpperCase());
+  });
+  if (!assignedDutyRows.length) return false;
+
+  const dutyToTimes = {
+    "PAGAR WAKTU DATANG (MURID)": ["1:00-1:30", "1:30-2:00"],
+    "PAGAR (12.20 TENGAH HARI)": ["1:00-1:30"],
+    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)": ["1:00-1:30", "1:30-2:00"],
+    "WAKTU REHAT (3.00-3.30)": ["3:00-3:30"],
+    "WAKTU REHAT (3.30-4.00)": ["3:30-4:00"],
+    "WAKTU BALIK (6.30 PETANG)": ["6:00-6:30"],
+    "KAWALAN MURID (6.00 PETANG)": ["5:30-6:00", "6:00-6:30"],
+    "TUGAS KHAS": []
+  };
+
+  return assignedDutyRows.some((row) => (dutyToTimes[row] || []).includes(time));
 }
 
 function hasNoBreakOnDay(teacher, day) {
@@ -822,6 +858,7 @@ function renderAvailableTeachers() {
   const dailyCounts = getAssignedCountByTeacherDay();
   const available = all.filter((t) => t !== focusAbsentTeacher && !absentTeachers.has(t) && !(guruSchedules[t] || {})[`${day}|${time}`]);
   const ranked = available
+    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
     .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
@@ -857,6 +894,7 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
     .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
@@ -869,6 +907,7 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
     .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
@@ -1350,12 +1389,13 @@ function init() {
     if (isReliefPlanApproved) return;
     const maxEl = document.getElementById("maxReliefPerDay");
     const txt = document.getElementById("reliefBlocklist");
+    const dutyEl = document.getElementById("includeDutyRule");
     const maxPerDay = Math.max(1, Number(maxEl.value || 2));
     const blocklist = (txt.value || "")
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean);
-    reliefRules = { maxPerDay, blocklist };
+    reliefRules = { maxPerDay, blocklist, includeDutyRule: !!(dutyEl ? dutyEl.checked : true) };
     saveReliefRules();
     renderReliefUi();
     alert("Tetapan relief disimpan.");
