@@ -47,14 +47,20 @@
           <button id="approveReliefPlanBtn" class="btn secondary">Approve + Lock</button>
           <button id="unlockReliefPlanBtn" class="btn secondary">Unlock</button>
           <button id="exportReliefPdfBtn" class="btn secondary">Export PDF</button>
+          <button id="undoReliefBtn" class="btn secondary">Undo</button>
+          <button id="redoReliefBtn" class="btn secondary">Redo</button>
         </div>
         <p id="reliefPlanStatus" class="hint">Status: Draft</p>
+        <div id="clashWarning" class="hint"></div>
       </div>
       <div class="card">
         <h3>Tetapan Relief</h3>
         <div class="toolbar">
           <label for="maxReliefPerDay">Max Relief / Hari:</label>
           <input id="maxReliefPerDay" type="number" min="1" max="10" value="2" style="width:90px" />
+          <label for="blockTimeSelect">No-Relief Time:</label>
+          <select id="blockTimeSelect"></select>
+          <button id="addBlockTimeBtn" class="btn secondary">Block Semua Hari</button>
           <button id="saveReliefRulesBtn" class="btn">Simpan Tetapan</button>
         </div>
         <p class="hint">Blocklist (1 baris 1 rule): `NAMA_GURU|HARI|MASA` contoh `AINUN|ISNIN|1:30-2:00`</p>
@@ -84,6 +90,14 @@
       <div class="card">
         <h3>Final Relief Plan</h3>
         <div id="finalReliefPlan" class="suggestions"></div>
+        <h3>Load Guru Hari Ini</h3>
+        <div id="teacherLoadSummary" class="suggestions"></div>
+        <h3>Mesej WhatsApp</h3>
+        <textarea id="waMessageBox" rows="6" style="width:100%"></textarea>
+        <div class="toolbar">
+          <button id="generateWaBtn" class="btn secondary">Generate Mesej</button>
+          <button id="copyWaBtn" class="btn secondary">Copy</button>
+        </div>
       </div>
     </section>
 

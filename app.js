@@ -111,6 +111,8 @@ let selectedClass = "";
 let reliefPlans = loadReliefPlans();
 let currentReliefDate = "";
 let isReliefPlanApproved = false;
+let undoStack = [];
+let redoStack = [];
 
 function blocksToMap(blocks) {
   const map = {};
@@ -176,6 +178,34 @@ function loadReliefPlans() {
 
 function saveReliefPlans() {
   localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans));
+}
+
+function snapshotAssignments() {
+  return JSON.stringify(reliefAssignments);
+}
+
+function pushUndoState() {
+  undoStack.push(snapshotAssignments());
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack = [];
+}
+
+function restoreAssignmentsFromSnapshot(s) {
+  try { reliefAssignments = JSON.parse(s) || {}; } catch { reliefAssignments = {}; }
+}
+
+function undoRelief() {
+  if (isReliefPlanApproved || !undoStack.length) return;
+  redoStack.push(snapshotAssignments());
+  restoreAssignmentsFromSnapshot(undoStack.pop());
+  renderReliefUi();
+}
+
+function redoRelief() {
+  if (isReliefPlanApproved || !redoStack.length) return;
+  undoStack.push(snapshotAssignments());
+  restoreAssignmentsFromSnapshot(redoStack.pop());
+  renderReliefUi();
 }
 
 function setReliefStatus(text) {
@@ -256,6 +286,16 @@ function renderReliefRulesForm() {
   if (!maxEl || !txt) return;
   maxEl.value = String(reliefRules.maxPerDay || 2);
   txt.value = (reliefRules.blocklist || []).join("\n");
+  const sel = document.getElementById("blockTimeSelect");
+  if (sel) {
+    sel.innerHTML = "";
+    TIMES.forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t;
+      o.textContent = t;
+      sel.appendChild(o);
+    });
+  }
 }
 
 function getAssignedCountByTeacherDay() {
@@ -696,6 +736,7 @@ function buildReliefTeacherTable() {
           e.preventDefault();
           const tName = e.dataTransfer.getData("text/plain");
           if (!tName) return;
+          pushUndoState();
           reliefAssignments[`${focusAbsentTeacher}|${k}`] = tName;
           renderReliefUi();
         });
@@ -793,6 +834,7 @@ function openAssignModal(slotKey) {
       row.textContent = `${prefix}${name} (score: ${score})`;
       row.addEventListener("click", () => {
         if (isReliefPlanApproved) return;
+        pushUndoState();
         reliefAssignments[`${focusAbsentTeacher}|${slotKey}`] = name;
         reliefScore[name] = Number(reliefScore[name] || 0) + 1;
         saveReliefScore();
@@ -837,6 +879,8 @@ function renderReliefUi() {
   buildReliefTeacherTable();
   renderAvailableTeachers();
   renderFinalReliefPlan();
+  renderTeacherLoadSummary();
+  renderClashWarning();
 }
 
 function renderFinalReliefPlan() {
@@ -861,6 +905,72 @@ function renderFinalReliefPlan() {
     d.innerHTML = `<div class="sug-title">${r.day} ${r.time}</div><div class="sug-free">Tak hadir: <b>${r.absent}</b> -> Relief: <b>${r.assignee}</b></div>`;
     wrap.appendChild(d);
   });
+}
+
+function renderTeacherLoadSummary() {
+  const wrap = document.getElementById("teacherLoadSummary");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const counts = {};
+  Object.values(reliefAssignments).forEach((name) => {
+    if (!name) return;
+    counts[name] = (counts[name] || 0) + 1;
+  });
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (!rows.length) {
+    wrap.innerHTML = "<div class='hint'>Belum ada data load relief.</div>";
+    return;
+  }
+  rows.forEach(([name, cnt]) => {
+    const d = document.createElement("div");
+    d.className = "sug-item";
+    d.innerHTML = `<div class="sug-title">${name}</div><div class="sug-free">Jumlah relief hari ini: <b>${cnt}</b></div>`;
+    wrap.appendChild(d);
+  });
+}
+
+function renderClashWarning() {
+  const box = document.getElementById("clashWarning");
+  if (!box) return;
+  const bySlotTeacher = {};
+  let clashes = 0;
+  Object.entries(reliefAssignments).forEach(([k, assignee]) => {
+    if (!assignee) return;
+    const [, day, time] = k.split("|");
+    const key = `${assignee}|${day}|${time}`;
+    bySlotTeacher[key] = (bySlotTeacher[key] || 0) + 1;
+  });
+  Object.values(bySlotTeacher).forEach((n) => { if (n > 1) clashes += 1; });
+  box.textContent = clashes ? `Clash Check: ${clashes} konflik dikesan.` : "Clash Check: Tiada konflik dikesan.";
+}
+
+function generateWaMessage() {
+  const rows = Object.entries(reliefAssignments)
+    .map(([k, assignee]) => {
+      const [absent, day, time] = k.split("|");
+      return { absent, day, time, assignee };
+    })
+    .filter((r) => r.assignee)
+    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+  const date = currentReliefDate || todayIso();
+  const lines = [`*PELAN RELIEF*`, `Tarikh: ${date}`, ``];
+  if (!rows.length) lines.push("Tiada assignment.");
+  rows.forEach((r, i) => lines.push(`${i + 1}. ${r.day} ${r.time} - ${r.assignee} ganti ${r.absent}`));
+  const el = document.getElementById("waMessageBox");
+  if (el) el.value = lines.join("\n");
+}
+
+async function copyWaMessage() {
+  const el = document.getElementById("waMessageBox");
+  if (!el) return;
+  const text = el.value || "";
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    el.select();
+    document.execCommand("copy");
+  }
+  alert("Mesej WhatsApp dicopy.");
 }
 
 function exportReliefPlanPdf() {
@@ -1172,6 +1282,15 @@ function init() {
     renderReliefUi();
     alert("Tetapan relief disimpan.");
   });
+  document.getElementById("addBlockTimeBtn").addEventListener("click", () => {
+    if (isReliefPlanApproved) return;
+    const t = document.getElementById("blockTimeSelect").value;
+    if (!t) return;
+    const adds = [];
+    getAllTeachers().forEach((g) => DAYS.forEach((d) => adds.push(`${g}|${d}|${t}`)));
+    reliefRules.blocklist = [...new Set([...(reliefRules.blocklist || []), ...adds])];
+    renderReliefRulesForm();
+  });
   document.getElementById("loadReliefPlanBtn").addEventListener("click", () => {
     loadPlanByDate(document.getElementById("reliefDate").value || todayIso());
   });
@@ -1179,6 +1298,10 @@ function init() {
   document.getElementById("approveReliefPlanBtn").addEventListener("click", approveCurrentPlan);
   document.getElementById("unlockReliefPlanBtn").addEventListener("click", unlockCurrentPlan);
   document.getElementById("exportReliefPdfBtn").addEventListener("click", exportReliefPlanPdf);
+  document.getElementById("undoReliefBtn").addEventListener("click", undoRelief);
+  document.getElementById("redoReliefBtn").addEventListener("click", redoRelief);
+  document.getElementById("generateWaBtn").addEventListener("click", generateWaMessage);
+  document.getElementById("copyWaBtn").addEventListener("click", copyWaMessage);
   document.getElementById("classSelect").addEventListener("change", (e) => {
     selectedClass = e.target.value;
     buildClassTable();
