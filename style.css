@@ -24,7 +24,7 @@ body {
 .logo-wrap { width: 72px; height: 72px; border-radius: 50%; border: 3px solid #2048a8; display: grid; place-items: center; background: #fff; }
 .logo { font-weight: 800; color: #2048a8; }
 .title { margin: 0; color: #14274f; letter-spacing: 1px; }
-.teacher-name { background: #ddd9ff; padding: 10px 16px; border-radius: 999px; font-weight: 700; border: 0; cursor: pointer; }
+.teacher-name { background: #ddd9ff; padding: 10px 16px; border-radius: 999px; font-weight: 700; border: 0; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; pointer-events: auto; position: relative; z-index: 20; min-height: 44px; display: inline-flex; align-items: center; }
 .teacher-name:hover { filter: brightness(0.97); }
 
 .tabs { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
@@ -50,7 +50,7 @@ body {
 .editor-input { width: 100%; height: 48px; border: 0; text-align: center; font-weight: 700; background: transparent; }
 .editor-input:focus { outline: 2px solid #356dff55; }
 
-.btn { border: 0; background: #1f63ff; color: #fff; padding: 10px 14px; border-radius: 10px; cursor: pointer; font-weight: 700; }
+.btn { border: 0; background: #1f63ff; color: #fff; padding: 10px 14px; border-radius: 10px; cursor: pointer; font-weight: 700; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .btn.secondary { background: #66758f; }
 .toolbar { margin: 10px 0; display: flex; gap: 8px; }
 .hint { color: #4e5968; font-size: .95rem; }

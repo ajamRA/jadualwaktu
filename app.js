@@ -257,12 +257,24 @@ function openGuruPickerModal() {
   manual.style.width = "100%";
   manual.style.textAlign = "left";
   manual.textContent = "Manual (Jadual Semasa)";
-  manual.addEventListener("click", () => {
-    selectedGuru = "MANUAL";
+  const selectGuru = (name) => {
+    selectedGuru = name;
     localStorage.setItem(KEYS.guruSelected, selectedGuru);
     updateTeacherPill();
     buildMainTable();
     modal.classList.add("hidden");
+  };
+
+  const bindTap = (el, fn) => {
+    el.addEventListener("click", fn);
+    el.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      fn();
+    }, { passive: false });
+  };
+
+  bindTap(manual, () => {
+    selectGuru("MANUAL");
   });
   list.appendChild(manual);
 
@@ -272,17 +284,23 @@ function openGuruPickerModal() {
     btn.style.width = "100%";
     btn.style.textAlign = "left";
     btn.textContent = name;
-    btn.addEventListener("click", () => {
-      selectedGuru = name;
-      localStorage.setItem(KEYS.guruSelected, selectedGuru);
-      updateTeacherPill();
-      buildMainTable();
-      modal.classList.add("hidden");
-    });
+    bindTap(btn, () => selectGuru(name));
     list.appendChild(btn);
   });
 
   modal.classList.remove("hidden");
+}
+
+function bindTeacherPillGlobalTrigger() {
+  const handler = (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest("#teacherNameBtn") || t.closest(".teacher-name")) {
+      e.preventDefault();
+      openGuruPickerModal();
+    }
+  };
+  document.addEventListener("pointerup", handler);
 }
 
 function getAllTeachers() {
@@ -872,7 +890,12 @@ function init() {
   const teacherBtn = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
   if (teacherBtn) {
     teacherBtn.addEventListener("click", openGuruPickerModal);
+    teacherBtn.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      openGuruPickerModal();
+    }, { passive: false });
   }
+  bindTeacherPillGlobalTrigger();
 
   renderGuruOptions();
   bindReliefDropzone();
