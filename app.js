@@ -91,7 +91,8 @@ const KEYS = {
   guruSelected: "jadual-v2-guru-selected",
   reliefScore: "jadual-v2-relief-score",
   reliefRules: "jadual-v1-relief-rules",
-  reliefPlans: "jadual-v1-relief-plans"
+  reliefPlans: "jadual-v1-relief-plans",
+  absentReasons: "jadual-v1-absent-reasons"
 };
 
 const reliefSet = new Set(JSON.parse(localStorage.getItem(KEYS.relief) || "[]"));
@@ -113,6 +114,7 @@ let currentReliefDate = "";
 let isReliefPlanApproved = false;
 let undoStack = [];
 let redoStack = [];
+let absentReasons = loadAbsentReasons();
 
 function blocksToMap(blocks) {
   const map = {};
@@ -178,6 +180,16 @@ function loadReliefPlans() {
 
 function saveReliefPlans() {
   localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans));
+}
+
+function loadAbsentReasons() {
+  const raw = localStorage.getItem(KEYS.absentReasons);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function saveAbsentReasons() {
+  localStorage.setItem(KEYS.absentReasons, JSON.stringify(absentReasons));
 }
 
 function snapshotAssignments() {
@@ -298,6 +310,32 @@ function renderReliefRulesForm() {
   }
 }
 
+function parseAbsentReasonBox() {
+  const box = document.getElementById("absentReasonBox");
+  if (!box) return;
+  const out = {};
+  (box.value || "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const idx = line.indexOf("|");
+      if (idx < 0) return;
+      const name = line.slice(0, idx).trim().toUpperCase();
+      const reason = line.slice(idx + 1).trim();
+      if (name && reason) out[name] = reason;
+    });
+  absentReasons = out;
+  saveAbsentReasons();
+}
+
+function renderAbsentReasonBox() {
+  const box = document.getElementById("absentReasonBox");
+  if (!box) return;
+  const lines = Object.entries(absentReasons).map(([k, v]) => `${k}|${v}`);
+  box.value = lines.join("\n");
+}
+
 function getAssignedCountByTeacherDay() {
   const counts = {};
   Object.entries(reliefAssignments).forEach(([k]) => {
@@ -315,6 +353,18 @@ function getAssignedCountByTeacherDay() {
 function isBlockedByRule(teacher, day, time) {
   const token = `${teacher}|${day}|${time}`.toUpperCase();
   return (reliefRules.blocklist || []).some((r) => r.toUpperCase() === token);
+}
+
+function hasNoBreakOnDay(teacher, day) {
+  const map = guruSchedules[teacher] || {};
+  const occupied = TIMES.map((t, idx) => ({ idx, busy: Boolean(map[`${day}|${t}`]) })).filter((x) => x.busy).map((x) => x.idx);
+  if (!occupied.length) return false;
+  const min = Math.min(...occupied);
+  const max = Math.max(...occupied);
+  for (let i = min; i <= max; i += 1) {
+    if (!map[`${day}|${TIMES[i]}`]) return false;
+  }
+  return true;
 }
 
 function activateTab(name) {
@@ -772,6 +822,7 @@ function renderAvailableTeachers() {
   const dailyCounts = getAssignedCountByTeacherDay();
   const available = all.filter((t) => t !== focusAbsentTeacher && !absentTeachers.has(t) && !(guruSchedules[t] || {})[`${day}|${time}`]);
   const ranked = available
+    .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
@@ -806,6 +857,7 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
@@ -817,6 +869,7 @@ function openAssignModal(slotKey) {
     .filter((t) => t !== focusAbsentTeacher)
     .filter((t) => !absentTeachers.has(t))
     .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !hasNoBreakOnDay(t, day))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
     .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
@@ -945,6 +998,7 @@ function renderClashWarning() {
 }
 
 function generateWaMessage() {
+  parseAbsentReasonBox();
   const rows = Object.entries(reliefAssignments)
     .map(([k, assignee]) => {
       const [absent, day, time] = k.split("|");
@@ -953,9 +1007,33 @@ function generateWaMessage() {
     .filter((r) => r.assignee)
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
   const date = currentReliefDate || todayIso();
-  const lines = [`*PELAN RELIEF*`, `Tarikh: ${date}`, ``];
+  const dateObj = new Date(`${date}T00:00:00`);
+  const dayMap = ["AHAD", "ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT", "SABTU"];
+  const dayName = dayMap[dateObj.getDay()];
+  const prettyDate = `${dateObj.getDate()} ${["Jan","Feb","Mac","Apr","Mei","Jun","Jul","Ogo","Sep","Okt","Nov","Dis"][dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+  const lines = [`${prettyDate} ( ${dayName}) `, ``, `*Relief Hari Ini*`, ``];
+
+  const absentSet = [...new Set(rows.map((r) => r.absent))];
+  absentSet.forEach((name) => {
+    const reason = absentReasons[name.toUpperCase()] || "TIADA MAKLUMAT";
+    lines.push(`☑️${name} - ${reason}`);
+    rows.filter((r) => r.absent === name).forEach((r) => {
+      const slot = (guruSchedules[name] || {})[`${r.day}|${r.time}`] || "";
+      let subject = "-";
+      let cls = "-";
+      if (slot.includes("|")) {
+        const [s, c] = slot.split("|");
+        subject = s;
+        cls = c;
+      }
+      const [t1, t2] = r.time.split("-");
+      const fmt = (x) => x.replace(":", ".");
+      const t = `${fmt(t1)} - ${fmt(t2)}`;
+      lines.push(`${cls} ${t} ${subject} ${r.assignee}`);
+    });
+    lines.push("");
+  });
   if (!rows.length) lines.push("Tiada assignment.");
-  rows.forEach((r, i) => lines.push(`${i + 1}. ${r.day} ${r.time} - ${r.assignee} ganti ${r.absent}`));
   const el = document.getElementById("waMessageBox");
   if (el) el.value = lines.join("\n");
 }
@@ -1330,6 +1408,7 @@ function init() {
 
   renderGuruOptions();
   renderReliefRulesForm();
+  renderAbsentReasonBox();
   loadPlanByDate(todayIso());
   buildClassSchedules();
   renderClassOptions();
