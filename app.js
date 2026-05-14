@@ -842,15 +842,14 @@ async function handleUploadGuruJson(e) {
 }
 
 function registerPwa() {
+  // Disable SW caching to avoid stale build on phones.
   if (!("serviceWorker" in navigator)) return;
-
-  const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
-  if (isLocalhost) {
-    navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
-    return;
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+    .catch(() => {});
+  if ("caches" in window) {
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {});
   }
-
-  navigator.serviceWorker.register("./sw.js?v=2").then((reg) => reg.update()).catch(() => {});
 }
 
 function init() {
