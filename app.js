@@ -87,7 +87,7 @@ const KEYS = {
   jadualFile: "jadual-v2-upload",
   bertugasFiles: "jadual-v2-bertugas-files",
   bertugasData: "jadual-v2-bertugas-data",
-  guruSchedules: "jadual-v2-guru-schedules",
+  guruSchedules: "jadual-v3-guru-schedules",
   guruSelected: "jadual-v2-guru-selected",
   reliefScore: "jadual-v2-relief-score"
 };
@@ -930,12 +930,15 @@ function init() {
   registerPwa();
 }
 
-fetch("./guru-schedules.json")
+fetch("./guru-schedules.json?v=20260514-2")
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => {
-    if (data && data.teachers && Object.keys(guruSchedules).length === 0) {
+    if (data && data.teachers) {
       guruSchedules = data.teachers;
       saveGuruSchedules();
+      renderGuruOptions();
+      buildMainTable();
+      renderReliefUi();
     }
   })
   .catch(() => {})
