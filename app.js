@@ -231,21 +231,8 @@ function buildMainTable() {
 }
 
 function renderGuruOptions() {
-  const sel = document.getElementById("guruSelect");
-  sel.innerHTML = "";
-  const manual = document.createElement("option");
-  manual.value = "MANUAL";
-  manual.textContent = "Manual (Jadual Semasa)";
-  sel.appendChild(manual);
-
-  Object.keys(guruSchedules).sort().forEach((guru) => {
-    const opt = document.createElement("option");
-    opt.value = guru;
-    opt.textContent = guru;
-    sel.appendChild(opt);
-  });
-
-  sel.value = selectedGuru in Object.fromEntries([...sel.options].map((o) => [o.value, true])) ? selectedGuru : "MANUAL";
+  const valid = new Set(["MANUAL", ...Object.keys(guruSchedules)]);
+  if (!valid.has(selectedGuru)) selectedGuru = "MANUAL";
   updateTeacherPill();
 }
 
@@ -258,6 +245,44 @@ function updateTeacherPill() {
   const pill = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
   if (!pill) return;
   pill.textContent = getTeacherPillText();
+}
+
+function openGuruPickerModal() {
+  const modal = document.getElementById("guruPickerModal");
+  const list = document.getElementById("guruPickerList");
+  list.innerHTML = "";
+
+  const manual = document.createElement("button");
+  manual.className = "btn secondary";
+  manual.style.width = "100%";
+  manual.style.textAlign = "left";
+  manual.textContent = "Manual (Jadual Semasa)";
+  manual.addEventListener("click", () => {
+    selectedGuru = "MANUAL";
+    localStorage.setItem(KEYS.guruSelected, selectedGuru);
+    updateTeacherPill();
+    buildMainTable();
+    modal.classList.add("hidden");
+  });
+  list.appendChild(manual);
+
+  getAllTeachers().forEach((name) => {
+    const btn = document.createElement("button");
+    btn.className = "btn secondary";
+    btn.style.width = "100%";
+    btn.style.textAlign = "left";
+    btn.textContent = name;
+    btn.addEventListener("click", () => {
+      selectedGuru = name;
+      localStorage.setItem(KEYS.guruSelected, selectedGuru);
+      updateTeacherPill();
+      buildMainTable();
+      modal.classList.add("hidden");
+    });
+    list.appendChild(btn);
+  });
+
+  modal.classList.remove("hidden");
 }
 
 function getAllTeachers() {
@@ -838,19 +863,15 @@ function init() {
   document.getElementById("assignModal").addEventListener("click", (e) => {
     if (e.target.id === "assignModal") e.currentTarget.classList.add("hidden");
   });
-  document.getElementById("guruSelect").addEventListener("change", (e) => {
-    selectedGuru = e.target.value;
-    localStorage.setItem(KEYS.guruSelected, selectedGuru);
-    updateTeacherPill();
-    buildMainTable();
+  document.getElementById("closeGuruPickerModal").addEventListener("click", () => {
+    document.getElementById("guruPickerModal").classList.add("hidden");
+  });
+  document.getElementById("guruPickerModal").addEventListener("click", (e) => {
+    if (e.target.id === "guruPickerModal") e.currentTarget.classList.add("hidden");
   });
   const teacherBtn = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
   if (teacherBtn) {
-    teacherBtn.addEventListener("click", () => {
-      const sel = document.getElementById("guruSelect");
-      sel.scrollIntoView({ behavior: "smooth", block: "center" });
-      sel.focus();
-    });
+    teacherBtn.addEventListener("click", openGuruPickerModal);
   }
 
   renderGuruOptions();
