@@ -255,7 +255,7 @@ function getTeacherPillText() {
 }
 
 function updateTeacherPill() {
-  const pill = document.getElementById("teacherNameBtn");
+  const pill = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
   if (!pill) return;
   pill.textContent = getTeacherPillText();
 }
@@ -844,11 +844,14 @@ function init() {
     updateTeacherPill();
     buildMainTable();
   });
-  document.getElementById("teacherNameBtn").addEventListener("click", () => {
-    const sel = document.getElementById("guruSelect");
-    sel.scrollIntoView({ behavior: "smooth", block: "center" });
-    sel.focus();
-  });
+  const teacherBtn = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
+  if (teacherBtn) {
+    teacherBtn.addEventListener("click", () => {
+      const sel = document.getElementById("guruSelect");
+      sel.scrollIntoView({ behavior: "smooth", block: "center" });
+      sel.focus();
+    });
+  }
 
   renderGuruOptions();
   bindReliefDropzone();
