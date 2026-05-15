@@ -9,33 +9,33 @@
   <title>Jadual Guru Pro</title>
   <meta name="theme-color" content="#1f2d44" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="style.css?v=20260514-2" />
+  <link rel="stylesheet" href="style.css?v=20260515" />
 </head>
 <body>
   <main class="page">
     <header class="topbar">
       <div class="logo-wrap"><div class="logo">SK</div></div>
       <h1 class="title">JADUAL WAKTU 2026</h1>
-      <button id="teacherNameBtn" class="teacher-name" title="Klik untuk pilih guru">MUHAMAD NURAZAM BIN RAHIM</button>
+      <button id="teacherNameBtn" class="teacher-name" aria-label="Pilih guru" title="Klik untuk pilih guru">MUHAMAD NURAZAM BIN RAHIM</button>
     </header>
 
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="jadual">Jadual Waktu</button>
-      <button class="tab-btn" data-tab="kelas">Jadual Kelas</button>
-      <button class="tab-btn" data-tab="relief">Relief</button>
-      <button class="tab-btn" data-tab="bertugas">Jadual Bertugas</button>
-      <button class="tab-btn" data-tab="admin">Admin</button>
+    <nav class="tabs" role="tablist" aria-label="Tab navigasi utama">
+      <button class="tab-btn active" data-tab="jadual" role="tab" aria-selected="true" aria-controls="tab-jadual">Jadual Waktu</button>
+      <button class="tab-btn" data-tab="kelas" role="tab" aria-selected="false" aria-controls="tab-kelas">Jadual Kelas</button>
+      <button class="tab-btn" data-tab="relief" role="tab" aria-selected="false" aria-controls="tab-relief">Relief</button>
+      <button class="tab-btn" data-tab="bertugas" role="tab" aria-selected="false" aria-controls="tab-bertugas">Jadual Bertugas</button>
+      <button class="tab-btn" data-tab="admin" role="tab" aria-selected="false" aria-controls="tab-admin">Admin</button>
     </nav>
 
-    <section id="tab-jadual" class="tab-panel active">
+    <section id="tab-jadual" class="tab-panel active" role="tabpanel" aria-labelledby="tab-jadual">
       <div class="toolbar">
-        <button id="clearReliefBtn" class="btn secondary">Reset Relief</button>
+        <button id="clearReliefBtn" class="btn secondary" aria-label="Reset tanda relief">Reset Relief</button>
       </div>
-      <div class="table-wrap"><table id="jadualTable" class="jadual"></table></div>
+      <div class="table-wrap"><table id="jadualTable" class="jadual" aria-label="Jadual waktu guru"></table></div>
       <p class="hint">Klik mana-mana kotak untuk tanda relief merah. Klik lagi untuk buang.</p>
     </section>
 
-    <section id="tab-relief" class="tab-panel">
+    <section id="tab-relief" class="tab-panel" role="tabpanel" aria-labelledby="tab-relief">
       <h2>Perancang Relief</h2>
       <div class="card">
         <h3>Pelan Harian</h3>
@@ -47,34 +47,48 @@
           <button id="approveReliefPlanBtn" class="btn secondary">Approve + Lock</button>
           <button id="unlockReliefPlanBtn" class="btn secondary">Unlock</button>
           <button id="exportReliefPdfBtn" class="btn secondary">Export PDF</button>
-          <button id="undoReliefBtn" class="btn secondary">Undo</button>
-          <button id="redoReliefBtn" class="btn secondary">Redo</button>
+          <button id="undoReliefBtn" class="btn secondary" aria-label="Undo">Undo</button>
+          <button id="redoReliefBtn" class="btn secondary" aria-label="Redo">Redo</button>
         </div>
         <p id="reliefPlanStatus" class="hint">Status: Draft</p>
-        <div id="clashWarning" class="hint"></div>
+        <div id="clashWarning" class="hint" role="alert" aria-live="polite"></div>
+      </div>
+      <div class="card">
+        <h3>Auto-Assign</h3>
+        <p class="hint">Klik butang di bawah untuk sistem auto-assign semua slot guru tak hadir secara automatik (ikut keutamaan subjek & fairness score).</p>
+        <div class="toolbar">
+          <button id="autoAssignBtn" class="btn">Auto-Assign Semua</button>
+          <button id="autoAssignSmartBtn" class="btn secondary">Smart Assign (Optimum)</button>
+        </div>
+        <div id="autoAssignLog" class="hint"></div>
       </div>
       <div class="card">
         <h3>Tetapan Relief</h3>
-        <div class="toolbar">
+        <div class="toolbar flex-wrap">
           <label for="maxReliefPerDay">Max Relief / Hari:</label>
           <input id="maxReliefPerDay" type="number" min="1" max="10" value="2" style="width:90px" />
           <label><input id="includeDutyRule" type="checkbox" checked /> Ambil kira jadual bertugas</label>
           <label for="blockTimeSelect">No-Relief Time:</label>
-          <select id="blockTimeSelect"></select>
+          <select id="blockTimeSelect" aria-label="Pilih masa untuk block"></select>
           <button id="addBlockTimeBtn" class="btn secondary">Block Semua Hari</button>
           <button id="saveReliefRulesBtn" class="btn">Simpan Tetapan</button>
         </div>
-        <p class="hint">Blocklist (1 baris 1 rule): `NAMA_GURU|HARI|MASA` contoh `AINUN|ISNIN|1:30-2:00`</p>
-        <textarea id="reliefBlocklist" rows="4" style="width:100%"></textarea>
+        <p class="hint">Blocklist (1 baris 1 rule): <code>NAMA_GURU|HARI|MASA</code> contoh <code>AINUN|ISNIN|1:30-2:00</code></p>
+        <textarea id="reliefBlocklist" rows="4" style="width:100%" aria-label="Senarai blocklist relief"></textarea>
+      </div>
+      <div class="card">
+        <h3>Statistik Relief</h3>
+        <div id="reliefStats" class="relief-stats"></div>
       </div>
       <div class="relief-grid">
         <div class="card">
           <h3>Senarai Guru (Tick atau Drag)</h3>
+          <input id="teacherSearchInput" type="search" placeholder="Cari guru..." class="search-input" aria-label="Cari nama guru" />
           <div id="reliefTeacherList" class="teacher-list"></div>
         </div>
         <div class="card">
           <h3>Guru Tidak Hadir (Drop Sini)</h3>
-          <div id="absentDropzone" class="dropzone">Drag nama guru ke sini</div>
+          <div id="absentDropzone" class="dropzone" role="region" aria-label="Zon drop guru tidak hadir">Drag nama guru ke sini</div>
           <div id="absentList" class="absent-list"></div>
         </div>
       </div>
@@ -83,10 +97,10 @@
         <p id="reliefFocusLabel" class="hint">Belum pilih cikgu.</p>
         <div class="toolbar">
           <label for="availableSlotSelect">Slot Semasa:</label>
-          <select id="availableSlotSelect"></select>
+          <select id="availableSlotSelect" aria-label="Pilih slot masa"></select>
         </div>
         <div id="availableTeachers" class="absent-list"></div>
-        <div class="table-wrap"><table id="reliefTeacherTable" class="jadual"></table></div>
+        <div class="table-wrap"><table id="reliefTeacherTable" class="jadual" aria-label="Jadual guru tidak hadir"></table></div>
       </div>
       <div class="card">
         <h3>Final Relief Plan</h3>
@@ -94,10 +108,10 @@
         <h3>Load Guru Hari Ini</h3>
         <div id="teacherLoadSummary" class="suggestions"></div>
         <h3>Sebab Tidak Hadir</h3>
-        <p class="hint">Format: `NAMA_GURU|SEBAB` (1 baris 1 guru)</p>
-        <textarea id="absentReasonBox" rows="4" style="width:100%"></textarea>
+        <p class="hint">Format: <code>NAMA_GURU|SEBAB</code> (1 baris 1 guru)</p>
+        <textarea id="absentReasonBox" rows="4" style="width:100%" aria-label="Sebab guru tidak hadir"></textarea>
         <h3>Mesej WhatsApp</h3>
-        <textarea id="waMessageBox" rows="6" style="width:100%"></textarea>
+        <textarea id="waMessageBox" rows="6" style="width:100%" aria-label="Mesej WhatsApp"></textarea>
         <div class="toolbar">
           <button id="generateWaBtn" class="btn secondary">Generate Mesej</button>
           <button id="copyWaBtn" class="btn secondary">Copy</button>
@@ -105,60 +119,73 @@
       </div>
     </section>
 
-    <section id="tab-kelas" class="tab-panel">
+    <section id="tab-kelas" class="tab-panel" role="tabpanel" aria-labelledby="tab-kelas">
       <h2>Jadual Waktu Kelas</h2>
       <div class="toolbar">
         <label for="classSelect">Pilih Kelas:</label>
-        <select id="classSelect"></select>
+        <select id="classSelect" aria-label="Pilih kelas"></select>
       </div>
-      <div class="table-wrap"><table id="classTable" class="jadual"></table></div>
+      <div class="table-wrap"><table id="classTable" class="jadual" aria-label="Jadual waktu kelas"></table></div>
     </section>
 
-    <section id="tab-bertugas" class="tab-panel">
+    <section id="tab-bertugas" class="tab-panel" role="tabpanel" aria-labelledby="tab-bertugas">
       <h2>Jadual Bertugas</h2>
-      <div class="table-wrap"><table id="bertugasTable" class="jadual"></table></div>
-      <p class="hint">Susunan sama macam jadual kelas: hari di kiri, slot tugasan ke kanan.</p>
+      <div class="toolbar">
+        <label for="bertugasWeekInput">Minggu:</label>
+        <input id="bertugasWeekInput" type="date" aria-label="Pilih tarikh minggu bertugas" />
+        <button id="bertugasWeekBtn" class="btn secondary">Set Minggu</button>
+      </div>
+      <div class="table-wrap"><table id="bertugasTable" class="jadual" aria-label="Jadual bertugas"></table></div>
     </section>
 
-    <section id="tab-admin" class="tab-panel">
+    <section id="tab-admin" class="tab-panel" role="tabpanel" aria-labelledby="tab-admin">
       <h2>Panel Admin</h2>
       <div class="admin-grid">
         <div class="card">
           <h3>Upload Rujukan Jadual Waktu (PDF/JPEG/PNG)</h3>
-          <input id="uploadJadual" type="file" accept="application/pdf,image/jpeg,image/png" />
-          <p class="hint">Untuk dropdown ramai guru, upload fail `guru-schedules.json`.</p>
-          <input id="uploadGuruJson" type="file" accept="application/json" />
+          <input id="uploadJadual" type="file" accept="application/pdf,image/jpeg,image/png" aria-label="Upload rujukan jadual waktu" />
+          <p class="hint">Untuk dropdown ramai guru, upload fail <code>guru-schedules.json</code>.</p>
+          <input id="uploadGuruJson" type="file" accept="application/json" aria-label="Upload guru-schedules.json" />
           <div id="jadualUploadInfo" class="upload-info"></div>
         </div>
 
         <div class="card">
           <h3>Upload Rujukan Jadual Bertugas (PDF/JPEG/PNG)</h3>
-          <input id="uploadBertugas" type="file" accept="application/pdf,image/jpeg,image/png" multiple />
+          <input id="uploadBertugas" type="file" accept="application/pdf,image/jpeg,image/png" multiple aria-label="Upload rujukan jadual bertugas" />
           <div id="bertugasUploadInfo" class="upload-info"></div>
         </div>
       </div>
 
       <div class="card">
         <h3>Edit Jadual Waktu (30 Minit Setiap Kotak)</h3>
-        <p class="hint">Format isi: `SN|3 R` atau kosongkan kalau tiada kelas.</p>
-        <div class="table-wrap"><table id="editorTable" class="jadual editor"></table></div>
+        <p class="hint">Format isi: <code>SN|3 R</code> atau kosongkan kalau tiada kelas.</p>
+        <div class="table-wrap"><table id="editorTable" class="jadual editor" aria-label="Editor jadual waktu"></table></div>
         <div class="toolbar">
-          <button id="saveJadualBtn" class="btn">Simpan & Publish Jadual Waktu</button>
+          <button id="saveJadualBtn" class="btn">Simpan &amp; Publish Jadual Waktu</button>
         </div>
       </div>
 
       <div class="card">
         <h3>Edit Jadual Bertugas</h3>
         <p class="hint">Isi nama guru ikut slot. Boleh terus publish ke tab Jadual Bertugas.</p>
-        <div class="table-wrap"><table id="bertugasEditorTable" class="jadual editor"></table></div>
+        <div class="table-wrap"><table id="bertugasEditorTable" class="jadual editor" aria-label="Editor jadual bertugas"></table></div>
         <div class="toolbar">
-          <button id="saveBertugasBtn" class="btn">Simpan & Publish Jadual Bertugas</button>
+          <button id="saveBertugasBtn" class="btn">Simpan &amp; Publish Jadual Bertugas</button>
         </div>
+      </div>
+
+      <div class="card">
+        <h3>Reset Data</h3>
+        <p class="hint">Padam semua data relief score untuk mula semula pengiraan fairness.</p>
+        <button id="resetScoreBtn" class="btn secondary">Reset Relief Score</button>
+        <button id="exportDataBtn" class="btn secondary">Export Semua Data (JSON)</button>
+        <button id="importDataBtn" class="btn secondary">Import Data (JSON)</button>
+        <input id="importDataFile" type="file" accept="application/json" style="display:none" />
       </div>
     </section>
   </main>
 
-  <div id="assignModal" class="modal-backdrop hidden">
+  <div id="assignModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="assignTitle">
     <div class="modal-card">
       <h3 id="assignTitle">Pilih Cikgu Relief</h3>
       <div id="assignList" class="teacher-list"></div>
@@ -167,9 +194,10 @@
       </div>
     </div>
   </div>
-  <div id="guruPickerModal" class="modal-backdrop hidden">
+  <div id="guruPickerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="guruPickerTitle">
     <div class="modal-card">
-      <h3>Pilih Guru</h3>
+      <h3 id="guruPickerTitle">Pilih Guru</h3>
+      <input id="guruPickerSearch" type="search" placeholder="Cari guru..." class="search-input" aria-label="Cari guru" />
       <div id="guruPickerList" class="teacher-list"></div>
       <div class="toolbar">
         <button id="closeGuruPickerModal" class="btn secondary">Tutup</button>
@@ -177,10 +205,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260514-2"></script>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="app.js?v=20260515"></script>
 </body>
 </html>
-
-
-
-

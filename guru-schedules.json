@@ -1,7 +1,7 @@
 {
   "meta": {
-    "source": "C:\\Users\\user\\Documents\\KJO\\JADUAL WAKTU PETANG KELAS BIL 3 2026_260220_125015.pdf",
-    "teachers": 39
+    "source": "C:\\Users\\user\\Downloads\\JADUAL WAKTU PETANG KELAS BIL 3 2026_260220_125015.pdf",
+    "teachers": 32
   },
   "teachers": {
     "AINUN": {
@@ -491,9 +491,7 @@
       "KHAMIS|3:30-4:00": "BM|3 IBNU BATUTTAH",
       "JUMAAT|2:30-3:00": "BM|3 IBNU BATUTTAH"
     },
-    "IZZATI RODZIAH": {
-      "JUMAAT|5:30-6:00": "TSMK|2 AL RAZI"
-    },
+
     "SARINAH": {
       "ISNIN|2:30-3:00": "MT|2 AL FARABI",
       "SELASA|1:00-1:30": "MT|2 AL FARABI",
@@ -514,9 +512,7 @@
       "JUMAAT|5:30-6:00": "MT|3 IBNU BATUTTAH",
       "JUMAAT|6:00-6:30": "MZ|3 IBNU BATUTTAH"
     },
-    "IZZATI NURAINI": {
-      "ISNIN|4:30-5:00": "TSMK|2 AL FARABI"
-    },
+
     "YASMIN": {
       "ISNIN|5:30-6:00": "BI|2 AL FARABI",
       "SELASA|1:30-2:00": "BI|2 AL FARABI",
@@ -551,9 +547,7 @@
       "SELASA|3:30-4:00": "PSV|3 IBNU BATUTTAH",
       "KHAMIS|5:30-6:00": "PSV|3 IBNU SINA"
     },
-    "MAHIRAH NURAINI": {
-      "RABU|1:30-2:00": "TSMK|2 AL JAZARI"
-    },
+
     "KHAIREEN": {
       "ISNIN|3:30-4:00": "BI|3 AL RAZI",
       "SELASA|1:00-1:30": "BI|3 AL RAZI",
@@ -572,9 +566,7 @@
       "KHAMIS|4:30-5:00": "BI|3 IBNU BATUTTAH",
       "JUMAAT|4:00-4:30": "BI|3 IBNU BATUTTAH"
     },
-    "ADIBAH RODZIAH": {
-      "SELASA|3:30-4:00": "TSMK|3 AL RAZI"
-    },
+
     "AKALILI": {
       "ISNIN|4:00-4:30": "BI|3 AL FARABI",
       "SELASA|5:30-6:00": "BI|3 AL FARABI",
@@ -592,16 +584,6 @@
       "RABU|4:00-4:30": "BI|3 IBNU SINA",
       "KHAMIS|1:30-2:00": "BI|3 IBNU SINA",
       "JUMAAT|2:30-3:00": "BI|3 IBNU SINA"
-    },
-    "ROHANA ADIBAH": {
-      "KHAMIS|1:30-2:00": "TSMK|3 AL FARABI"
-    },
-    "ROHANA HALIYZA": {
-      "JUMAAT|4:00-4:30": "TSMK|3 AL JAZARI",
-      "KHAMIS|2:30-3:00": "TSMK|3 IBNU SINA"
-    },
-    "ROHANA RODZIAH": {
-      "KHAMIS|5:30-6:00": "TSMK|3 IBNU BATUTTAH"
     }
   }
 }

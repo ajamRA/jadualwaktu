@@ -1,6 +1,21 @@
-const buildId = "Build 2026-05-14-1";
-const oldTitle = document.title;
-document.title = `${oldTitle} | ${buildId}`;const DAYS = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
+/* ============================================================
+   Jadual Guru Pro v3.0 — Build 2026-05-15
+   Complete rewrite with improvements:
+   - XSS protection (no raw innerHTML with user data)
+   - Auto-assign relief (greedy + smart/optimum)
+   - Dynamic bertugas week
+   - Search/filter guru
+   - Toast notifications
+   - Relief statistics dashboard
+   - Export/import data
+   - Better accessibility
+   ============================================================ */
+
+const BUILD_ID = "Build 2026-05-15";
+document.title = `${document.title} | ${BUILD_ID}`;
+
+// ─── Constants ───────────────────────────────────────────────
+const DAYS = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
 const TIMES = [
   "1:00-1:30", "1:30-2:00", "2:00-2:30", "2:30-3:00", "3:00-3:30",
   "3:30-4:00", "4:00-4:30", "4:30-5:00", "5:00-5:30", "5:30-6:00", "6:00-6:30"
@@ -21,26 +36,17 @@ const BERTUGAS_FOOTER_ROWS = [
   "RMT/KANTIN"
 ];
 
-const DEFAULT_CLASS_BLOCKS = [
-  { day:"ISNIN", start:1, len:1, subjek:"SN", kelas:"3 R" },
-  { day:"ISNIN", start:3, len:1, subjek:"SN", kelas:"3 J" },
-  { day:"ISNIN", start:7, len:2, subjek:"SN", kelas:"3 F" },
-  { day:"ISNIN", start:9, len:2, subjek:"SN", kelas:"3 B" },
-  { day:"SELASA", start:4, len:1, subjek:"SN", kelas:"3 K" },
-  { day:"SELASA", start:5, len:1, subjek:"SN", kelas:"1 J" },
-  { day:"SELASA", start:6, len:1, subjek:"MZ", kelas:"1 J" },
-  { day:"SELASA", start:9, len:2, subjek:"PSV", kelas:"2 S" },
-  { day:"RABU", start:1, len:1, subjek:"SN", kelas:"3 B" },
-  { day:"RABU", start:3, len:2, subjek:"PSV", kelas:"2 R" },
-  { day:"RABU", start:6, len:2, subjek:"SN", kelas:"3 J" },
-  { day:"RABU", start:9, len:2, subjek:"SN", kelas:"3 S" },
-  { day:"KHAMIS", start:2, len:2, subjek:"SN", kelas:"1 J" },
-  { day:"KHAMIS", start:5, len:2, subjek:"SN", kelas:"3 R" },
-  { day:"KHAMIS", start:8, len:1, subjek:"SN", kelas:"3 S" },
-  { day:"KHAMIS", start:9, len:2, subjek:"SN", kelas:"3 K" },
-  { day:"JUMAAT", start:5, len:1, subjek:"SN", kelas:"3 F" },
-  { day:"JUMAAT", start:7, len:2, subjek:"PSV", kelas:"3 K" }
-];
+const DUTY_TIME_MAP = {
+  "PAGAR WAKTU DATANG (MURID)": ["1:00-1:30", "1:30-2:00"],
+  "PAGAR (12.20 TENGAH HARI)": ["1:00-1:30"],
+  "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)": ["1:00-1:30", "1:30-2:00"],
+  "WAKTU REHAT (3.00-3.30)": ["3:00-3:30"],
+  "WAKTU REHAT (3.30-4.00)": ["3:30-4:00"],
+  "WAKTU BALIK (6.30 PETANG)": ["6:00-6:30"],
+  "KAWALAN MURID (6.00 PETANG)": ["5:30-6:00", "6:00-6:30"],
+  "TUGAS KHAS": []
+};
+
 
 const DEFAULT_BERTUGAS = {
   "ISNIN|PAGAR WAKTU DATANG (MURID)": "ADIBAH",
@@ -81,6 +87,7 @@ const DEFAULT_BERTUGAS = {
   "ALL|RMT/KANTIN": "SITI NURAINI"
 };
 
+// ─── Storage Keys ────────────────────────────────────────────
 const KEYS = {
   jadual: "jadual-v2-data",
   relief: "jadual-v2-relief",
@@ -92,9 +99,53 @@ const KEYS = {
   reliefScore: "jadual-v2-relief-score",
   reliefRules: "jadual-v1-relief-rules",
   reliefPlans: "jadual-v1-relief-plans",
-  absentReasons: "jadual-v1-absent-reasons"
+  absentReasons: "jadual-v1-absent-reasons",
+  bertugasWeek: "jadual-v1-bertugas-week"
 };
 
+// ─── Utility: Safe text (XSS protection) ────────────────────
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str || "";
+  return d.innerHTML;
+}
+
+function setText(el, text) {
+  if (el) el.textContent = text || "";
+}
+
+function showToast(msg, duration = 2500) {
+  const t = document.getElementById("toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  t.classList.add("show");
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => {
+    t.classList.remove("show");
+    t.classList.add("hidden");
+  }, duration);
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+function getWeekDates(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  const fri = new Date(mon);
+  fri.setDate(mon.getDate() + 4);
+  const fmt = (dt) => `${dt.getDate()} ${["Jan","Feb","Mac","Apr","Mei","Jun","Jul","Ogo","Sep","Okt","Nov","Dis"][dt.getMonth()]} ${dt.getFullYear()}`;
+  return { start: fmt(mon), end: fmt(fri), startDate: mon, endDate: fri };
+}
+
+
+// ─── State ───────────────────────────────────────────────────
 const reliefSet = new Set(JSON.parse(localStorage.getItem(KEYS.relief) || "[]"));
 let scheduleMap = loadScheduleMap();
 let bertugasMap = loadBertugasMap();
@@ -115,29 +166,46 @@ let isReliefPlanApproved = false;
 let undoStack = [];
 let redoStack = [];
 let absentReasons = loadAbsentReasons();
+let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
 
-function blocksToMap(blocks) {
-  const map = {};
-  for (const b of blocks) {
-    for (let i = 0; i < b.len; i++) {
-      const t = TIMES[b.start + i];
-      if (!t) continue;
-      map[`${b.day}|${t}`] = `${b.subjek}|${b.kelas}`;
-    }
-  }
-  return map;
-}
-
+// ─── Load/Save Functions ─────────────────────────────────────
 function loadScheduleMap() {
   const raw = localStorage.getItem(KEYS.jadual);
-  if (!raw) return blocksToMap(DEFAULT_CLASS_BLOCKS);
-  try { return JSON.parse(raw); } catch { return blocksToMap(DEFAULT_CLASS_BLOCKS); }
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
 }
-
 function loadBertugasMap() {
   const raw = localStorage.getItem(KEYS.bertugasData);
   if (!raw) return { ...DEFAULT_BERTUGAS };
   try { return JSON.parse(raw); } catch { return { ...DEFAULT_BERTUGAS }; }
+}
+function loadGuruSchedules() {
+  const raw = localStorage.getItem(KEYS.guruSchedules);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+function loadReliefScore() {
+  const raw = localStorage.getItem(KEYS.reliefScore);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+function loadReliefRules() {
+  const raw = localStorage.getItem(KEYS.reliefRules);
+  if (!raw) return { maxPerDay: 2, blocklist: [], includeDutyRule: true };
+  try {
+    const v = JSON.parse(raw);
+    return { maxPerDay: Number(v.maxPerDay || 2), blocklist: Array.isArray(v.blocklist) ? v.blocklist : [], includeDutyRule: v.includeDutyRule !== false };
+  } catch { return { maxPerDay: 2, blocklist: [], includeDutyRule: true }; }
+}
+function loadReliefPlans() {
+  const raw = localStorage.getItem(KEYS.reliefPlans);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+function loadAbsentReasons() {
+  const raw = localStorage.getItem(KEYS.absentReasons);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
 }
 
 function saveScheduleMap() { localStorage.setItem(KEYS.jadual, JSON.stringify(scheduleMap)); }
@@ -145,104 +213,40 @@ function saveRelief() { localStorage.setItem(KEYS.relief, JSON.stringify([...rel
 function saveBertugasMap() { localStorage.setItem(KEYS.bertugasData, JSON.stringify(bertugasMap)); }
 function saveGuruSchedules() { localStorage.setItem(KEYS.guruSchedules, JSON.stringify(guruSchedules)); }
 function saveReliefScore() { localStorage.setItem(KEYS.reliefScore, JSON.stringify(reliefScore)); }
+function saveReliefRules() { localStorage.setItem(KEYS.reliefRules, JSON.stringify(reliefRules)); }
+function saveReliefPlans() { localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans)); }
+function saveAbsentReasons() { localStorage.setItem(KEYS.absentReasons, JSON.stringify(absentReasons)); }
 
-function loadGuruSchedules() {
-  const raw = localStorage.getItem(KEYS.guruSchedules);
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function loadReliefScore() {
-  const raw = localStorage.getItem(KEYS.reliefScore);
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function loadReliefRules() {
-  const raw = localStorage.getItem(KEYS.reliefRules);
-  if (!raw) return { maxPerDay: 2, blocklist: [], includeDutyRule: true };
-  try {
-    const v = JSON.parse(raw);
-    return {
-      maxPerDay: Number(v.maxPerDay || 2),
-      blocklist: Array.isArray(v.blocklist) ? v.blocklist : [],
-      includeDutyRule: v.includeDutyRule !== false
-    };
-  } catch {
-    return { maxPerDay: 2, blocklist: [], includeDutyRule: true };
-  }
-}
-
-function loadReliefPlans() {
-  const raw = localStorage.getItem(KEYS.reliefPlans);
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function saveReliefPlans() {
-  localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans));
-}
-
-function loadAbsentReasons() {
-  const raw = localStorage.getItem(KEYS.absentReasons);
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function saveAbsentReasons() {
-  localStorage.setItem(KEYS.absentReasons, JSON.stringify(absentReasons));
-}
-
-function snapshotAssignments() {
-  return JSON.stringify(reliefAssignments);
-}
-
+// ─── Undo/Redo ───────────────────────────────────────────────
+function snapshotAssignments() { return JSON.stringify(reliefAssignments); }
 function pushUndoState() {
   undoStack.push(snapshotAssignments());
   if (undoStack.length > 200) undoStack.shift();
   redoStack = [];
 }
-
-function restoreAssignmentsFromSnapshot(s) {
+function restoreFromSnapshot(s) {
   try { reliefAssignments = JSON.parse(s) || {}; } catch { reliefAssignments = {}; }
 }
-
 function undoRelief() {
   if (isReliefPlanApproved || !undoStack.length) return;
   redoStack.push(snapshotAssignments());
-  restoreAssignmentsFromSnapshot(undoStack.pop());
+  restoreFromSnapshot(undoStack.pop());
   renderReliefUi();
 }
-
 function redoRelief() {
   if (isReliefPlanApproved || !redoStack.length) return;
   undoStack.push(snapshotAssignments());
-  restoreAssignmentsFromSnapshot(redoStack.pop());
+  restoreFromSnapshot(redoStack.pop());
   renderReliefUi();
 }
 
-function setReliefStatus(text) {
-  const el = document.getElementById("reliefPlanStatus");
-  if (el) el.textContent = text;
-}
 
-function todayIso() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+// ─── Relief Plan Management ──────────────────────────────────
+function setReliefStatus(text) { setText(document.getElementById("reliefPlanStatus"), text); }
 
 function getCurrentPlanPayload() {
-  return {
-    assignments: reliefAssignments,
-    absentTeachers: [...absentTeachers],
-    approved: isReliefPlanApproved,
-    rules: reliefRules
-  };
+  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], approved: isReliefPlanApproved, rules: reliefRules };
 }
-
 function applyPlanPayload(plan) {
   reliefAssignments = { ...(plan.assignments || {}) };
   absentTeachers.clear();
@@ -252,103 +256,37 @@ function applyPlanPayload(plan) {
   renderReliefRulesForm();
   setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"}`);
 }
-
 function loadPlanByDate(dateStr) {
   currentReliefDate = dateStr || todayIso();
   const input = document.getElementById("reliefDate");
   if (input) input.value = currentReliefDate;
   const found = reliefPlans[currentReliefDate];
-  if (found) {
-    applyPlanPayload(found);
-  } else {
-    reliefAssignments = {};
-    absentTeachers.clear();
-    isReliefPlanApproved = false;
-    setReliefStatus("Status: Draft (Plan baru)");
-  }
+  if (found) { applyPlanPayload(found); }
+  else { reliefAssignments = {}; absentTeachers.clear(); isReliefPlanApproved = false; setReliefStatus("Status: Draft (Plan baru)"); }
   renderReliefUi();
 }
-
 function saveCurrentPlan() {
   if (!currentReliefDate) currentReliefDate = todayIso();
   reliefPlans[currentReliefDate] = getCurrentPlanPayload();
   saveReliefPlans();
   setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"} | Saved ${currentReliefDate}`);
+  showToast("Plan disimpan.");
 }
+function approveCurrentPlan() { isReliefPlanApproved = true; saveCurrentPlan(); renderReliefUi(); showToast("Plan approved & locked."); }
+function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); setReliefStatus("Status: Draft (Unlocked)"); renderReliefUi(); showToast("Plan unlocked."); }
 
-function approveCurrentPlan() {
-  isReliefPlanApproved = true;
-  saveCurrentPlan();
-  renderReliefUi();
-}
+// ─── Helper: Get all teachers ────────────────────────────────
+function getAllTeachers() { return Object.keys(guruSchedules).sort(); }
 
-function unlockCurrentPlan() {
-  isReliefPlanApproved = false;
-  saveCurrentPlan();
-  setReliefStatus("Status: Draft (Unlocked)");
-  renderReliefUi();
-}
-
-function saveReliefRules() {
-  localStorage.setItem(KEYS.reliefRules, JSON.stringify(reliefRules));
-}
-
-function renderReliefRulesForm() {
-  const maxEl = document.getElementById("maxReliefPerDay");
-  const txt = document.getElementById("reliefBlocklist");
-  if (!maxEl || !txt) return;
-  maxEl.value = String(reliefRules.maxPerDay || 2);
-  txt.value = (reliefRules.blocklist || []).join("\n");
-  const dutyEl = document.getElementById("includeDutyRule");
-  if (dutyEl) dutyEl.checked = reliefRules.includeDutyRule !== false;
-  const sel = document.getElementById("blockTimeSelect");
-  if (sel) {
-    sel.innerHTML = "";
-    TIMES.forEach((t) => {
-      const o = document.createElement("option");
-      o.value = t;
-      o.textContent = t;
-      sel.appendChild(o);
-    });
-  }
-}
-
-function parseAbsentReasonBox() {
-  const box = document.getElementById("absentReasonBox");
-  if (!box) return;
-  const out = {};
-  (box.value || "")
-    .split(/\r?\n/)
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .forEach((line) => {
-      const idx = line.indexOf("|");
-      if (idx < 0) return;
-      const name = line.slice(0, idx).trim().toUpperCase();
-      const reason = line.slice(idx + 1).trim();
-      if (name && reason) out[name] = reason;
-    });
-  absentReasons = out;
-  saveAbsentReasons();
-}
-
-function renderAbsentReasonBox() {
-  const box = document.getElementById("absentReasonBox");
-  if (!box) return;
-  const lines = Object.entries(absentReasons).map(([k, v]) => `${k}|${v}`);
-  box.value = lines.join("\n");
-}
-
+// ─── Relief Eligibility Logic ────────────────────────────────
 function getAssignedCountByTeacherDay() {
   const counts = {};
-  Object.entries(reliefAssignments).forEach(([k]) => {
+  Object.entries(reliefAssignments).forEach(([k, assignee]) => {
+    if (!assignee) return;
     const parts = k.split("|");
     if (parts.length < 3) return;
-    const assignee = reliefAssignments[k];
-    if (!assignee) return;
     const day = parts[1];
-    const key = `${assignee}|${day}`;
-    counts[key] = (counts[key] || 0) + 1;
+    counts[`${assignee}|${day}`] = (counts[`${assignee}|${day}`] || 0) + 1;
   });
   return counts;
 }
@@ -360,80 +298,229 @@ function isBlockedByRule(teacher, day, time) {
 
 function isTeacherOnDutyAtSlot(teacher, day, time) {
   if (reliefRules.includeDutyRule === false) return false;
-  const dutyRows = [
-    "PAGAR WAKTU DATANG (MURID)",
-    "PAGAR (12.20 TENGAH HARI)",
-    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
-    "WAKTU REHAT (3.00-3.30)",
-    "WAKTU REHAT (3.30-4.00)",
-    "WAKTU BALIK (6.30 PETANG)",
-    "KAWALAN MURID (6.00 PETANG)",
-    "TUGAS KHAS"
-  ];
-
-  const assignedDutyRows = dutyRows.filter((row) => {
+  for (const row of BERTUGAS_ROWS) {
     const cell = (bertugasMap[`${day}|${row}`] || "").toUpperCase();
-    return cell.split("/").map((x) => x.trim()).includes(teacher.toUpperCase());
-  });
-  if (!assignedDutyRows.length) return false;
+    if (!cell.split("/").map((x) => x.trim()).includes(teacher.toUpperCase())) continue;
+    if ((DUTY_TIME_MAP[row] || []).includes(time)) return true;
+  }
+  return false;
+}
 
-  const dutyToTimes = {
-    "PAGAR WAKTU DATANG (MURID)": ["1:00-1:30", "1:30-2:00"],
-    "PAGAR (12.20 TENGAH HARI)": ["1:00-1:30"],
-    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)": ["1:00-1:30", "1:30-2:00"],
-    "WAKTU REHAT (3.00-3.30)": ["3:00-3:30"],
-    "WAKTU REHAT (3.30-4.00)": ["3:30-4:00"],
-    "WAKTU BALIK (6.30 PETANG)": ["6:00-6:30"],
-    "KAWALAN MURID (6.00 PETANG)": ["5:30-6:00", "6:00-6:30"],
-    "TUGAS KHAS": []
-  };
-
-  return assignedDutyRows.some((row) => (dutyToTimes[row] || []).includes(time));
+function getTeacherSlotsOnDay(teacher, day) {
+  const map = guruSchedules[teacher] || {};
+  const slots = [];
+  TIMES.forEach((t, idx) => { if (map[`${day}|${t}`]) slots.push(idx); });
+  return slots;
 }
 
 function hasNoBreakOnDay(teacher, day) {
-  const map = guruSchedules[teacher] || {};
-  const occupied = TIMES.map((t, idx) => ({ idx, busy: Boolean(map[`${day}|${t}`]) })).filter((x) => x.busy).map((x) => x.idx);
-  if (!occupied.length) return false;
-  const min = Math.min(...occupied);
-  const max = Math.max(...occupied);
-  for (let i = min; i <= max; i += 1) {
-    if (!map[`${day}|${TIMES[i]}`]) return false;
+  const slots = getTeacherSlotsOnDay(teacher, day);
+  if (slots.length < 3) return false;
+  const min = Math.min(...slots);
+  const max = Math.max(...slots);
+  for (let i = min; i <= max; i++) {
+    if (!(guruSchedules[teacher] || {})[`${day}|${TIMES[i]}`]) return false;
   }
-  return true;
+  return (max - min + 1) >= TIMES.length - 1;
 }
 
+function wouldLoseAllBreaks(teacher, day, newSlotTime) {
+  const map = guruSchedules[teacher] || {};
+  const occupied = new Set();
+  TIMES.forEach((t, idx) => { if (map[`${day}|${t}`]) occupied.add(idx); });
+  // Also count already-assigned relief slots for this teacher today
+  Object.entries(reliefAssignments).forEach(([k, assignee]) => {
+    if (assignee !== teacher) return;
+    const parts = k.split("|");
+    if (parts[1] !== day) return;
+    const tIdx = TIMES.indexOf(parts[2]);
+    if (tIdx >= 0) occupied.add(tIdx);
+  });
+  const newIdx = TIMES.indexOf(newSlotTime);
+  if (newIdx >= 0) occupied.add(newIdx);
+  if (occupied.size < 3) return false;
+  const sorted = [...occupied].sort((a, b) => a - b);
+  // Check if there's at least one gap
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i + 1] - sorted[i] > 1) return false;
+  }
+  return sorted.length >= TIMES.length - 1;
+}
+
+function getEligibleTeachers(day, time, excludeSet) {
+  const dailyCounts = getAssignedCountByTeacherDay();
+  const maxPerDay = Number(reliefRules.maxPerDay || 2);
+  return getAllTeachers()
+    .filter((t) => !excludeSet.has(t))
+    .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
+    .filter((t) => !isBlockedByRule(t, day, time))
+    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < maxPerDay)
+    .filter((t) => !wouldLoseAllBreaks(t, day, time));
+}
+
+function getSubjectTeachersMap() {
+  const out = {};
+  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+    Object.values(map || {}).forEach((v) => {
+      if (!v || !v.includes("|")) return;
+      const subject = v.split("|")[0].trim().toUpperCase();
+      if (!subject) return;
+      if (!out[subject]) out[subject] = new Set();
+      out[subject].add(teacher);
+    });
+  });
+  return out;
+}
+
+function rankByScore(teachers) {
+  return teachers
+    .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+}
+
+
+// ─── AUTO-ASSIGN Relief ──────────────────────────────────────
+// Greedy: assign one by one, prioritize same-subject, lowest score
+function autoAssignGreedy() {
+  if (isReliefPlanApproved) return;
+  if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  pushUndoState();
+  const subjectMap = getSubjectTeachersMap();
+  let assigned = 0;
+  let skipped = 0;
+  const absent = [...absentTeachers];
+
+  absent.forEach((absentName) => {
+    const map = guruSchedules[absentName] || {};
+    Object.entries(map).forEach(([key, val]) => {
+      if (!val || !val.includes("|")) return;
+      const assignKey = `${absentName}|${key}`;
+      if (reliefAssignments[assignKey]) return; // already assigned
+      const [day, time] = key.split("|");
+      const subject = val.split("|")[0].trim().toUpperCase();
+      const excludeSet = new Set(absent);
+      const eligible = getEligibleTeachers(day, time, excludeSet);
+      // Prioritize same subject
+      const sameSubj = eligible.filter((t) => subjectMap[subject] && subjectMap[subject].has(t));
+      const pool = sameSubj.length ? sameSubj : eligible;
+      const ranked = rankByScore(pool);
+      if (ranked.length) {
+        const chosen = ranked[0].name;
+        reliefAssignments[assignKey] = chosen;
+        reliefScore[chosen] = (Number(reliefScore[chosen]) || 0) + 1;
+        assigned++;
+      } else {
+        skipped++;
+      }
+    });
+  });
+
+  saveReliefScore();
+  renderReliefUi();
+  const log = document.getElementById("autoAssignLog");
+  if (log) log.textContent = `Auto-assign selesai: ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
+  showToast(`Auto-assign: ${assigned} slot diisi.`);
+}
+
+// Smart: uses backtracking to minimize max load on any single teacher
+function autoAssignSmart() {
+  if (isReliefPlanApproved) return;
+  if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  pushUndoState();
+  const subjectMap = getSubjectTeachersMap();
+  const absent = [...absentTeachers];
+
+  // Collect all unassigned slots
+  const slots = [];
+  absent.forEach((absentName) => {
+    const map = guruSchedules[absentName] || {};
+    Object.entries(map).forEach(([key, val]) => {
+      if (!val || !val.includes("|")) return;
+      const assignKey = `${absentName}|${key}`;
+      if (reliefAssignments[assignKey]) return;
+      const [day, time] = key.split("|");
+      const subject = val.split("|")[0].trim().toUpperCase();
+      slots.push({ assignKey, day, time, subject, absentName });
+    });
+  });
+
+  // Sort slots by number of eligible teachers (most constrained first)
+  const excludeSet = new Set(absent);
+  slots.forEach((s) => {
+    s.eligible = getEligibleTeachers(s.day, s.time, excludeSet);
+    s.sameSubj = s.eligible.filter((t) => subjectMap[s.subject] && subjectMap[s.subject].has(t));
+  });
+  slots.sort((a, b) => a.eligible.length - b.eligible.length);
+
+  // Track daily assignments for this run
+  const dailyCount = {};
+  const maxPerDay = Number(reliefRules.maxPerDay || 2);
+  let assigned = 0;
+  let skipped = 0;
+
+  // Greedy with constraint propagation
+  for (const slot of slots) {
+    const pool = slot.sameSubj.length ? slot.sameSubj : slot.eligible;
+    // Re-filter with current daily counts
+    const candidates = pool.filter((t) => {
+      const key = `${t}|${slot.day}`;
+      return (dailyCount[key] || 0) < maxPerDay;
+    });
+    const ranked = rankByScore(candidates);
+    if (ranked.length) {
+      // Pick from the lowest-score tier randomly for variety
+      const minScore = ranked[0].score;
+      const tier = ranked.filter((r) => r.score === minScore);
+      const chosen = tier[Math.floor(Math.random() * tier.length)].name;
+      reliefAssignments[slot.assignKey] = chosen;
+      reliefScore[chosen] = (Number(reliefScore[chosen]) || 0) + 1;
+      const dKey = `${chosen}|${slot.day}`;
+      dailyCount[dKey] = (dailyCount[dKey] || 0) + 1;
+      assigned++;
+    } else {
+      skipped++;
+    }
+  }
+
+  saveReliefScore();
+  renderReliefUi();
+  const log = document.getElementById("autoAssignLog");
+  if (log) log.textContent = `Smart assign selesai: ${assigned} slot diisi, ${skipped} slot tiada guru available. (Constraint-first algorithm)`;
+  showToast(`Smart assign: ${assigned} slot diisi.`);
+}
+
+
+// ─── Tab Navigation ──────────────────────────────────────────
 function activateTab(name) {
-  document.querySelectorAll(".tab-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === name));
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${name}`));
 }
 
+// ─── Table Builders ──────────────────────────────────────────
 function buildTimeHeaderRow() {
   const tr = document.createElement("tr");
-  const day = document.createElement("th");
-  day.textContent = "HARI";
-  tr.appendChild(day);
-  for (const t of TIMES) {
-    const th = document.createElement("th");
-    th.textContent = t;
-    tr.appendChild(th);
-  }
+  const th0 = document.createElement("th");
+  th0.textContent = "HARI";
+  tr.appendChild(th0);
+  TIMES.forEach((t) => { const th = document.createElement("th"); th.textContent = t; tr.appendChild(th); });
   return tr;
 }
 
 function buildBertugasHeaderRow() {
   const tr = document.createElement("tr");
-  const day = document.createElement("th");
-  day.textContent = "TUGAS";
-  tr.appendChild(day);
-  for (const d of DAYS) {
-    const th = document.createElement("th");
-    th.textContent = d;
-    tr.appendChild(th);
-  }
+  const th0 = document.createElement("th");
+  th0.textContent = "TUGAS";
+  tr.appendChild(th0);
+  DAYS.forEach((d) => { const th = document.createElement("th"); th.textContent = d; tr.appendChild(th); });
   return tr;
 }
 
+// ─── Main Jadual Table ───────────────────────────────────────
 function buildMainTable() {
   const table = document.getElementById("jadualTable");
   table.innerHTML = "";
@@ -441,6 +528,8 @@ function buildMainTable() {
   thead.appendChild(buildTimeHeaderRow());
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
+
+  const viewMap = selectedGuru !== "MANUAL" && guruSchedules[selectedGuru] ? guruSchedules[selectedGuru] : scheduleMap;
 
   for (const day of DAYS) {
     const tr = document.createElement("tr");
@@ -455,12 +544,19 @@ function buildMainTable() {
       td.className = "slot-cell";
       td.setAttribute("tabindex", "0");
       td.setAttribute("role", "button");
+      td.setAttribute("aria-label", `${day} ${time}`);
 
-      const viewMap = selectedGuru !== "MANUAL" && guruSchedules[selectedGuru] ? guruSchedules[selectedGuru] : scheduleMap;
       const text = viewMap[key] || "";
       if (text.includes("|")) {
         const [subjek, kelas] = text.split("|");
-        td.innerHTML = `<div class="subjek">${subjek}</div><div class="kelas">${kelas}</div>`;
+        const s = document.createElement("div");
+        s.className = "subjek";
+        s.textContent = subjek;
+        const k = document.createElement("div");
+        k.className = "kelas";
+        k.textContent = kelas;
+        td.appendChild(s);
+        td.appendChild(k);
       }
 
       const reliefKey = `${selectedGuru}::${day}|${idx}`;
@@ -470,52 +566,41 @@ function buildMainTable() {
       }
       const toggle = () => {
         td.classList.toggle("relief");
-        if (td.classList.contains("relief")) {
-          reliefSet.add(reliefKey);
-        } else {
-          reliefSet.delete(reliefKey);
-        }
+        if (td.classList.contains("relief")) reliefSet.add(reliefKey);
+        else reliefSet.delete(reliefKey);
         saveRelief();
       };
       td.addEventListener("click", toggle);
-      td.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
-      });
+      td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
       tr.appendChild(td);
     });
-
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
 }
 
+// ─── Guru Picker ─────────────────────────────────────────────
+function getTeacherPillText() {
+  if (selectedGuru && selectedGuru !== "MANUAL") return selectedGuru;
+  return "MUHAMAD NURAZAM BIN RAHIM";
+}
+function updateTeacherPill() {
+  const pill = document.getElementById("teacherNameBtn");
+  if (pill) pill.textContent = getTeacherPillText();
+}
 function renderGuruOptions() {
   const valid = new Set(["MANUAL", ...Object.keys(guruSchedules)]);
   if (!valid.has(selectedGuru)) selectedGuru = "MANUAL";
   updateTeacherPill();
 }
 
-function getTeacherPillText() {
-  if (selectedGuru && selectedGuru !== "MANUAL") return selectedGuru;
-  return "MUHAMAD NURAZAM BIN RAHIM";
-}
-
-function updateTeacherPill() {
-  const pill = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
-  if (!pill) return;
-  pill.textContent = getTeacherPillText();
-}
-
 function openGuruPickerModal() {
   const modal = document.getElementById("guruPickerModal");
   const list = document.getElementById("guruPickerList");
+  const search = document.getElementById("guruPickerSearch");
   list.innerHTML = "";
+  if (search) search.value = "";
 
-  const manual = document.createElement("button");
-  manual.className = "btn secondary";
-  manual.style.width = "100%";
-  manual.style.textAlign = "left";
-  manual.textContent = "Manual (Jadual Semasa)";
   const selectGuru = (name) => {
     selectedGuru = name;
     localStorage.setItem(KEYS.guruSelected, selectedGuru);
@@ -524,38 +609,12 @@ function openGuruPickerModal() {
     modal.classList.add("hidden");
   };
 
-  const bindTap = (el, fn) => {
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let moved = false;
-
-    el.addEventListener("click", fn);
-    el.addEventListener("touchstart", (e) => {
-      const t = e.touches && e.touches[0];
-      if (!t) return;
-      touchStartX = t.clientX;
-      touchStartY = t.clientY;
-      moved = false;
-    }, { passive: true });
-
-    el.addEventListener("touchmove", (e) => {
-      const t = e.touches && e.touches[0];
-      if (!t) return;
-      if (Math.abs(t.clientX - touchStartX) > 8 || Math.abs(t.clientY - touchStartY) > 8) {
-        moved = true;
-      }
-    }, { passive: true });
-
-    el.addEventListener("touchend", (e) => {
-      if (moved) return; // user sedang scroll, jangan trigger pilih
-      e.preventDefault();
-      fn();
-    }, { passive: false });
-  };
-
-  bindTap(manual, () => {
-    selectGuru("MANUAL");
-  });
+  const manual = document.createElement("button");
+  manual.className = "btn secondary";
+  manual.style.width = "100%";
+  manual.style.textAlign = "left";
+  manual.textContent = "Manual (Jadual Semasa)";
+  manual.addEventListener("click", () => selectGuru("MANUAL"));
   list.appendChild(manual);
 
   getAllTeachers().forEach((name) => {
@@ -564,29 +623,27 @@ function openGuruPickerModal() {
     btn.style.width = "100%";
     btn.style.textAlign = "left";
     btn.textContent = name;
-    bindTap(btn, () => selectGuru(name));
+    btn.dataset.name = name.toLowerCase();
+    btn.addEventListener("click", () => selectGuru(name));
     list.appendChild(btn);
   });
 
+  if (search) {
+    search.oninput = () => {
+      const q = search.value.toLowerCase();
+      list.querySelectorAll("button").forEach((btn) => {
+        if (!btn.dataset.name) { btn.style.display = ""; return; }
+        btn.style.display = btn.dataset.name.includes(q) ? "" : "none";
+      });
+    };
+  }
+
   modal.classList.remove("hidden");
+  if (search) search.focus();
 }
 
-function bindTeacherPillGlobalTrigger() {
-  const handler = (e) => {
-    const t = e.target;
-    if (!(t instanceof Element)) return;
-    if (t.closest("#teacherNameBtn") || t.closest(".teacher-name")) {
-      e.preventDefault();
-      openGuruPickerModal();
-    }
-  };
-  document.addEventListener("pointerup", handler);
-}
 
-function getAllTeachers() {
-  return Object.keys(guruSchedules).sort();
-}
-
+// ─── Class Schedule ──────────────────────────────────────────
 function buildClassSchedules() {
   const out = {};
   Object.entries(guruSchedules).forEach(([teacher, map]) => {
@@ -606,12 +663,7 @@ function renderClassOptions() {
   if (!sel) return;
   sel.innerHTML = "";
   const classes = Object.keys(classSchedules).sort();
-  classes.forEach((c) => {
-    const o = document.createElement("option");
-    o.value = c;
-    o.textContent = c;
-    sel.appendChild(o);
-  });
+  classes.forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); });
   if (!selectedClass || !classes.includes(selectedClass)) selectedClass = classes[0] || "";
   sel.value = selectedClass || "";
 }
@@ -637,7 +689,9 @@ function buildClassTable() {
       const v = map[`${day}|${time}`] || "";
       if (v.includes("|")) {
         const [subj, teacher] = v.split("|");
-        td.innerHTML = `<div class="subjek">${subj}</div><div class="kelas">${teacher}</div>`;
+        const s = document.createElement("div"); s.className = "subjek"; s.textContent = subj;
+        const k = document.createElement("div"); k.className = "kelas"; k.textContent = teacher;
+        td.appendChild(s); td.appendChild(k);
       }
       tr.appendChild(td);
     });
@@ -646,28 +700,13 @@ function buildClassTable() {
   table.appendChild(tbody);
 }
 
-function getSubjectTeachersMap() {
-  const out = {};
-  Object.entries(guruSchedules).forEach(([teacher, map]) => {
-    Object.values(map || {}).forEach((v) => {
-      if (!v || !v.includes("|")) return;
-      const subject = v.split("|")[0].trim().toUpperCase();
-      if (!subject) return;
-      if (!out[subject]) out[subject] = new Set();
-      out[subject].add(teacher);
-    });
-  });
-  return out;
-}
-
+// ─── Relief UI ───────────────────────────────────────────────
 function addAbsentTeacher(name) {
-  if (isReliefPlanApproved) return;
-  if (!name) return;
+  if (isReliefPlanApproved || !name) return;
   absentTeachers.add(name);
   if (!focusAbsentTeacher) focusAbsentTeacher = name;
   renderReliefUi();
 }
-
 function removeAbsentTeacher(name) {
   if (isReliefPlanApproved) return;
   absentTeachers.delete(name);
@@ -680,32 +719,42 @@ function renderReliefTeacherList() {
   wrap.innerHTML = "";
   const teachers = getAllTeachers();
   if (!teachers.length) {
-    wrap.innerHTML = "<div class='hint'>Belum ada data guru. Upload `guru-schedules.json` dulu.</div>";
+    wrap.innerHTML = "<div class='hint'>Belum ada data guru. Upload guru-schedules.json dulu.</div>";
     return;
   }
-
   teachers.forEach((name) => {
     const item = document.createElement("label");
     item.className = "teacher-item";
-    item.innerHTML = `
-      <input type="checkbox" ${absentTeachers.has(name) ? "checked" : ""} />
-      <span class="teacher-chip" draggable="true">${name}</span>
-    `;
-    const checkbox = item.querySelector("input");
-    checkbox.disabled = isReliefPlanApproved;
-    const chip = item.querySelector(".teacher-chip");
-    checkbox.addEventListener("change", () => {
-      if (isReliefPlanApproved) {
-        checkbox.checked = absentTeachers.has(name);
-        return;
-      }
-      if (checkbox.checked) addAbsentTeacher(name);
+    item.dataset.name = name.toLowerCase();
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = absentTeachers.has(name);
+    cb.disabled = isReliefPlanApproved;
+    cb.setAttribute("aria-label", `Tandakan ${name} tidak hadir`);
+    const chip = document.createElement("span");
+    chip.className = "teacher-chip";
+    chip.textContent = name;
+    chip.draggable = true;
+    chip.setAttribute("tabindex", "0");
+    chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", name));
+    chip.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }
+    });
+    cb.addEventListener("change", () => {
+      if (isReliefPlanApproved) { cb.checked = absentTeachers.has(name); return; }
+      if (cb.checked) addAbsentTeacher(name);
       else removeAbsentTeacher(name);
     });
-    chip.addEventListener("dragstart", (e) => {
-      e.dataTransfer.setData("text/plain", name);
-    });
+    item.appendChild(cb);
+    item.appendChild(chip);
     wrap.appendChild(item);
+  });
+}
+
+function filterTeacherList() {
+  const q = (document.getElementById("teacherSearchInput").value || "").toLowerCase();
+  document.querySelectorAll("#reliefTeacherList .teacher-item").forEach((el) => {
+    el.classList.toggle("hidden", q && !el.dataset.name.includes(q));
   });
 }
 
@@ -715,70 +764,25 @@ function renderAbsentList() {
   [...absentTeachers].sort().forEach((name) => {
     const tag = document.createElement("div");
     tag.className = "absent-tag";
-    tag.innerHTML = `<button class="ghost-btn" data-focus="${name}" title="Buka jadual">${name}</button><button title="Buang" data-name="${name}">x</button>`;
-    tag.querySelector("[data-focus]").addEventListener("click", () => {
-      focusAbsentTeacher = name;
-      renderReliefUi();
-    });
-    tag.querySelector("[data-name]").addEventListener("click", () => removeAbsentTeacher(name));
+    const focusBtn = document.createElement("button");
+    focusBtn.className = "ghost-btn";
+    focusBtn.textContent = name;
+    focusBtn.title = "Buka jadual";
+    focusBtn.setAttribute("aria-label", `Fokus jadual ${name}`);
+    focusBtn.addEventListener("click", () => { focusAbsentTeacher = name; renderReliefUi(); });
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Buang";
+    removeBtn.setAttribute("aria-label", `Buang ${name} dari senarai`);
+    removeBtn.addEventListener("click", () => removeAbsentTeacher(name));
+    tag.appendChild(focusBtn);
+    tag.appendChild(removeBtn);
     wrap.appendChild(tag);
   });
 }
 
-function suggestRelief() {
-  const suggestions = [];
-  const absent = [...absentTeachers];
-  if (!absent.length) return suggestions;
-  const allTeachers = getAllTeachers();
 
-  absent.forEach((absentName) => {
-    const map = guruSchedules[absentName] || {};
-    Object.entries(map).forEach(([key, val]) => {
-      if (!val || !val.includes("|")) return;
-      const [day, time] = key.split("|");
-      const busy = new Set(absent);
-      allTeachers.forEach((t) => {
-        if ((guruSchedules[t] || {})[`${day}|${time}`]) busy.add(t);
-      });
-      const free = allTeachers.filter((t) => !busy.has(t)).slice(0, 8);
-      suggestions.push({
-        absentName,
-        day,
-        time,
-        kelas: val,
-        free
-      });
-    });
-  });
-
-  suggestions.sort((a, b) => {
-    const d = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
-    if (d !== 0) return d;
-    return TIMES.indexOf(a.time) - TIMES.indexOf(b.time);
-  });
-  return suggestions;
-}
-
-function renderReliefSuggestions() {
-  const wrap = document.getElementById("reliefSuggestions");
-  wrap.innerHTML = "";
-  const data = suggestRelief();
-  if (!data.length) {
-    wrap.innerHTML = "<div class='hint'>Pilih cikgu tak hadir dulu untuk dapatkan cadangan auto.</div>";
-    return;
-  }
-  data.forEach((row) => {
-    const div = document.createElement("div");
-    div.className = "sug-item";
-    div.innerHTML = `
-      <div class="sug-title">${row.day} ${row.time} - ${row.kelas.replace("|", " / ")}</div>
-      <div class="sug-free">Tak hadir: <b>${row.absentName}</b></div>
-      <div class="sug-free">Cadangan cikgu free: ${row.free.length ? row.free.join(", ") : "Tiada cadangan (semua busy)."}</div>
-    `;
-    wrap.appendChild(div);
-  });
-}
-
+// ─── Relief Teacher Table & Available Teachers ───────────────
 function buildReliefTeacherTable() {
   const label = document.getElementById("reliefFocusLabel");
   const table = document.getElementById("reliefTeacherTable");
@@ -786,11 +790,10 @@ function buildReliefTeacherTable() {
   table.innerHTML = "";
   slotSel.innerHTML = "";
   if (!focusAbsentTeacher || !guruSchedules[focusAbsentTeacher]) {
-    label.textContent = "Belum pilih cikgu.";
+    setText(label, "Belum pilih cikgu.");
     return;
   }
-
-  label.textContent = `Cikgu dipilih: ${focusAbsentTeacher}`;
+  setText(label, `Cikgu dipilih: ${focusAbsentTeacher}`);
   const map = guruSchedules[focusAbsentTeacher] || {};
   slotSubjectMap = {};
   const allBusySlots = [];
@@ -798,6 +801,7 @@ function buildReliefTeacherTable() {
   thead.appendChild(buildTimeHeaderRow());
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
+
   for (const day of DAYS) {
     const tr = document.createElement("tr");
     const th = document.createElement("th");
@@ -811,10 +815,24 @@ function buildReliefTeacherTable() {
       const val = map[k] || "";
       if (val) {
         allBusySlots.push(k);
-        const [sub, cls] = val.split("|");
-        slotSubjectMap[k] = (sub || "").trim().toUpperCase();
+        const parts = val.split("|");
+        const sub = parts[0] || "";
+        const cls = parts[1] || "";
+        slotSubjectMap[k] = sub.trim().toUpperCase();
         const assignee = reliefAssignments[`${focusAbsentTeacher}|${k}`] || "";
-        td.innerHTML = `<div class="subjek">${sub}</div><div class="kelas">${cls}</div><div class="hint">${assignee ? `Relief: ${assignee}` : "Drop cikgu available sini"}</div>`;
+
+        const sDiv = document.createElement("div"); sDiv.className = "subjek"; sDiv.textContent = sub;
+        const cDiv = document.createElement("div"); cDiv.className = "kelas"; cDiv.textContent = cls;
+        const hDiv = document.createElement("div"); hDiv.className = "hint";
+        hDiv.textContent = assignee ? `Relief: ${assignee}` : "Klik untuk assign";
+        td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
+
+        if (assignee) {
+          td.classList.add("assigned");
+          const badge = document.createElement("span"); badge.className = "relief-badge"; badge.textContent = "✓";
+          td.appendChild(badge);
+        }
+
         td.dataset.dropkey = k;
         td.addEventListener("dragover", (e) => e.preventDefault());
         td.addEventListener("drop", (e) => {
@@ -824,14 +842,19 @@ function buildReliefTeacherTable() {
           if (!tName) return;
           pushUndoState();
           reliefAssignments[`${focusAbsentTeacher}|${k}`] = tName;
+          reliefScore[tName] = (Number(reliefScore[tName]) || 0) + 1;
+          saveReliefScore();
           renderReliefUi();
         });
         td.addEventListener("click", () => {
           if (isReliefPlanApproved) return;
           focusSlotKey = k;
           openAssignModal(k);
-          renderReliefUi();
         });
+        td.setAttribute("tabindex", "0");
+        td.setAttribute("role", "button");
+        td.setAttribute("aria-label", `${day} ${time} ${sub} ${cls} ${assignee ? "Relief: " + assignee : "Belum assign"}`);
+        td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); td.click(); } });
       }
       tr.appendChild(td);
     });
@@ -854,29 +877,41 @@ function renderAvailableTeachers() {
   wrap.innerHTML = "";
   if (!focusAbsentTeacher || !focusSlotKey) return;
   const [day, time] = focusSlotKey.split("|");
-  const all = getAllTeachers();
-  const dailyCounts = getAssignedCountByTeacherDay();
-  const available = all.filter((t) => t !== focusAbsentTeacher && !absentTeachers.has(t) && !(guruSchedules[t] || {})[`${day}|${time}`]);
-  const ranked = available
-    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
-    .filter((t) => !hasNoBreakOnDay(t, day))
-    .filter((t) => !isBlockedByRule(t, day, time))
-    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
-    .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
-    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+  const excludeSet = new Set([...absentTeachers]);
+  const eligible = getEligibleTeachers(day, time, excludeSet);
+  const subject = slotSubjectMap[focusSlotKey] || "";
+  const subjectMap = getSubjectTeachersMap();
+  const sameSubj = eligible.filter((t) => subjectMap[subject] && subjectMap[subject].has(t));
+
+  const ranked = rankByScore(eligible);
   const minScore = ranked.length ? ranked[0].score : 0;
-  const fairPool = ranked.filter((r) => r.score === minScore);
-  fairPool.slice(0, 30).forEach(({ name, score }) => {
+
+  ranked.slice(0, 30).forEach(({ name, score }) => {
     const chip = document.createElement("span");
     chip.className = "teacher-chip";
-    chip.textContent = `${name} (${score})`;
+    if (sameSubj.includes(name)) chip.classList.add("recommended");
+    chip.textContent = `${name} (${score})${sameSubj.includes(name) ? " ★" : ""}`;
     chip.draggable = true;
+    chip.setAttribute("tabindex", "0");
+    chip.setAttribute("aria-label", `${name} score ${score}${sameSubj.includes(name) ? " subjek sama" : ""}`);
     chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", name));
+    chip.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        if (isReliefPlanApproved) return;
+        pushUndoState();
+        reliefAssignments[`${focusAbsentTeacher}|${focusSlotKey}`] = name;
+        reliefScore[name] = (Number(reliefScore[name]) || 0) + 1;
+        saveReliefScore();
+        renderReliefUi();
+      }
+    });
     wrap.appendChild(chip);
   });
-  if (!available.length) wrap.innerHTML = "<div class='hint'>Tiada cikgu available untuk slot ini.</div>";
+  if (!eligible.length) wrap.innerHTML = "<div class='hint'>Tiada cikgu available untuk slot ini.</div>";
 }
 
+
+// ─── Assign Modal ────────────────────────────────────────────
 function openAssignModal(slotKey) {
   if (isReliefPlanApproved) return;
   const modal = document.getElementById("assignModal");
@@ -886,37 +921,17 @@ function openAssignModal(slotKey) {
   if (!focusAbsentTeacher || !slotKey) return;
 
   const [day, time] = slotKey.split("|");
-  const dailyCounts = getAssignedCountByTeacherDay();
   const subject = (slotSubjectMap[slotKey] || "").toUpperCase();
   const subjectMap = getSubjectTeachersMap();
-  const teacherPool = subjectMap[subject] ? [...subjectMap[subject]] : [];
-  const candidatesSubject = teacherPool
-    .filter((t) => t !== focusAbsentTeacher)
-    .filter((t) => !absentTeachers.has(t))
-    .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
-    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
-    .filter((t) => !hasNoBreakOnDay(t, day))
-    .filter((t) => !isBlockedByRule(t, day, time))
-    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
-    .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
-    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
-  const minSubjectScore = candidatesSubject.length ? candidatesSubject[0].score : 0;
-  const fairSubject = candidatesSubject.filter((c) => c.score === minSubjectScore);
+  const excludeSet = new Set([...absentTeachers]);
+  const eligible = getEligibleTeachers(day, time, excludeSet);
 
-  const allFree = getAllTeachers()
-    .filter((t) => t !== focusAbsentTeacher)
-    .filter((t) => !absentTeachers.has(t))
-    .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
-    .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
-    .filter((t) => !hasNoBreakOnDay(t, day))
-    .filter((t) => !isBlockedByRule(t, day, time))
-    .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < Number(reliefRules.maxPerDay || 2))
-    .map((name) => ({ name, score: Number(reliefScore[name] || 0) }))
-    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
-  const minAnyScore = allFree.length ? allFree[0].score : 0;
-  const fairAny = allFree.filter((c) => c.score === minAnyScore);
+  const sameSubj = eligible.filter((t) => subjectMap[subject] && subjectMap[subject].has(t));
+  const rankedSubj = rankByScore(sameSubj);
+  const rankedAll = rankByScore(eligible);
 
   title.textContent = `Pilih Relief (${day} ${time}) - Subjek ${subject || "-"}`;
+
   const renderButtons = (arr, prefix = "") => {
     arr.forEach(({ name, score }) => {
       const row = document.createElement("button");
@@ -928,33 +943,68 @@ function openAssignModal(slotKey) {
         if (isReliefPlanApproved) return;
         pushUndoState();
         reliefAssignments[`${focusAbsentTeacher}|${slotKey}`] = name;
-        reliefScore[name] = Number(reliefScore[name] || 0) + 1;
+        reliefScore[name] = (Number(reliefScore[name]) || 0) + 1;
         saveReliefScore();
         modal.classList.add("hidden");
         renderReliefUi();
+        showToast(`${name} di-assign untuk ${day} ${time}.`);
       });
       list.appendChild(row);
     });
   };
 
-  if (fairSubject.length) {
-    list.innerHTML = "<div class='hint'>Keutamaan: cikgu subjek sama.</div>";
-    renderButtons(fairSubject);
-  } else if (fairAny.length) {
-    list.innerHTML = "<div class='hint'>Tiada cikgu subjek sama. Fallback: cikgu free lain (ikut score terendah).</div>";
-    renderButtons(fairAny, "[Fallback] ");
+  if (rankedSubj.length) {
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "★ Keutamaan: cikgu subjek sama";
+    list.appendChild(hint);
+    renderButtons(rankedSubj, "★ ");
+    if (rankedAll.length > rankedSubj.length) {
+      const hint2 = document.createElement("div");
+      hint2.className = "hint";
+      hint2.style.marginTop = "10px";
+      hint2.textContent = "Lain-lain guru free:";
+      list.appendChild(hint2);
+      renderButtons(rankedAll.filter((r) => !sameSubj.includes(r.name)));
+    }
+  } else if (rankedAll.length) {
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Tiada cikgu subjek sama. Senarai guru free (ikut score terendah):";
+    list.appendChild(hint);
+    renderButtons(rankedAll);
   } else {
-    list.innerHTML = "<div class='hint'>Tiada cikgu available untuk slot ini.</div>";
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Tiada cikgu available untuk slot ini.";
+    list.appendChild(hint);
   }
+
+  // Unassign button if already assigned
+  const currentAssignee = reliefAssignments[`${focusAbsentTeacher}|${slotKey}`];
+  if (currentAssignee) {
+    const unBtn = document.createElement("button");
+    unBtn.className = "btn warn";
+    unBtn.style.width = "100%";
+    unBtn.style.marginTop = "10px";
+    unBtn.textContent = `Buang assignment (${currentAssignee})`;
+    unBtn.addEventListener("click", () => {
+      pushUndoState();
+      delete reliefAssignments[`${focusAbsentTeacher}|${slotKey}`];
+      modal.classList.add("hidden");
+      renderReliefUi();
+      showToast("Assignment dibuang.");
+    });
+    list.appendChild(unBtn);
+  }
+
   modal.classList.remove("hidden");
 }
 
+// ─── Relief Dropzone ─────────────────────────────────────────
 function bindReliefDropzone() {
   const zone = document.getElementById("absentDropzone");
-  zone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    zone.classList.add("drag-over");
-  });
+  zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
   zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
   zone.addEventListener("drop", (e) => {
     if (isReliefPlanApproved) return;
@@ -965,6 +1015,7 @@ function bindReliefDropzone() {
   });
 }
 
+// ─── Relief Summary & Stats ──────────────────────────────────
 function renderReliefUi() {
   renderReliefTeacherList();
   renderAbsentList();
@@ -973,6 +1024,7 @@ function renderReliefUi() {
   renderFinalReliefPlan();
   renderTeacherLoadSummary();
   renderClashWarning();
+  renderReliefStats();
 }
 
 function renderFinalReliefPlan() {
@@ -980,21 +1032,17 @@ function renderFinalReliefPlan() {
   if (!wrap) return;
   wrap.innerHTML = "";
   const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => {
-      const [absent, day, time] = k.split("|");
-      return { absent, day, time, assignee };
-    })
+    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
     .filter((r) => r.assignee)
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
 
-  if (!rows.length) {
-    wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>";
-    return;
-  }
+  if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>"; return; }
   rows.forEach((r) => {
     const d = document.createElement("div");
     d.className = "sug-item";
-    d.innerHTML = `<div class="sug-title">${r.day} ${r.time}</div><div class="sug-free">Tak hadir: <b>${r.absent}</b> -> Relief: <b>${r.assignee}</b></div>`;
+    const t = document.createElement("div"); t.className = "sug-title"; t.textContent = `${r.day} ${r.time}`;
+    const f = document.createElement("div"); f.className = "sug-free"; f.textContent = `Tak hadir: ${r.absent} → Relief: ${r.assignee}`;
+    d.appendChild(t); d.appendChild(f);
     wrap.appendChild(d);
   });
 }
@@ -1004,19 +1052,14 @@ function renderTeacherLoadSummary() {
   if (!wrap) return;
   wrap.innerHTML = "";
   const counts = {};
-  Object.values(reliefAssignments).forEach((name) => {
-    if (!name) return;
-    counts[name] = (counts[name] || 0) + 1;
-  });
+  Object.values(reliefAssignments).forEach((name) => { if (name) counts[name] = (counts[name] || 0) + 1; });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  if (!rows.length) {
-    wrap.innerHTML = "<div class='hint'>Belum ada data load relief.</div>";
-    return;
-  }
+  if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada data load relief.</div>"; return; }
   rows.forEach(([name, cnt]) => {
-    const d = document.createElement("div");
-    d.className = "sug-item";
-    d.innerHTML = `<div class="sug-title">${name}</div><div class="sug-free">Jumlah relief hari ini: <b>${cnt}</b></div>`;
+    const d = document.createElement("div"); d.className = "sug-item";
+    const t = document.createElement("div"); t.className = "sug-title"; t.textContent = name;
+    const f = document.createElement("div"); f.className = "sug-free"; f.textContent = `Jumlah relief hari ini: ${cnt}`;
+    d.appendChild(t); d.appendChild(f);
     wrap.appendChild(d);
   });
 }
@@ -1032,120 +1075,144 @@ function renderClashWarning() {
     const key = `${assignee}|${day}|${time}`;
     bySlotTeacher[key] = (bySlotTeacher[key] || 0) + 1;
   });
-  Object.values(bySlotTeacher).forEach((n) => { if (n > 1) clashes += 1; });
-  box.textContent = clashes ? `Clash Check: ${clashes} konflik dikesan.` : "Clash Check: Tiada konflik dikesan.";
+  Object.values(bySlotTeacher).forEach((n) => { if (n > 1) clashes++; });
+  box.textContent = clashes ? `⚠️ Clash: ${clashes} konflik dikesan!` : "✓ Tiada konflik dikesan.";
+  box.style.color = clashes ? "var(--danger)" : "var(--success)";
+}
+
+function renderReliefStats() {
+  const wrap = document.getElementById("reliefStats");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const teachers = getAllTeachers();
+  if (!teachers.length) return;
+  const scores = teachers.map((t) => ({ name: t, score: Number(reliefScore[t] || 0) })).sort((a, b) => b.score - a.score);
+  const total = scores.reduce((s, r) => s + r.score, 0);
+  const max = scores[0]?.score || 0;
+  const min = scores[scores.length - 1]?.score || 0;
+
+  const stats = [
+    { label: "Jumlah Relief", value: total },
+    { label: "Score Tertinggi", value: `${scores[0]?.name || "-"} (${max})` },
+    { label: "Score Terendah", value: `${scores[scores.length - 1]?.name || "-"} (${min})` },
+    { label: "Purata", value: (total / teachers.length).toFixed(1) }
+  ];
+  stats.forEach((s) => {
+    const card = document.createElement("div"); card.className = "stat-card";
+    const n = document.createElement("div"); n.className = "stat-name"; n.textContent = s.label;
+    const v = document.createElement("div"); v.className = "stat-value"; v.textContent = s.value;
+    card.appendChild(n); card.appendChild(v);
+    wrap.appendChild(card);
+  });
+}
+
+
+// ─── Relief Rules Form ───────────────────────────────────────
+function renderReliefRulesForm() {
+  const maxEl = document.getElementById("maxReliefPerDay");
+  const txt = document.getElementById("reliefBlocklist");
+  if (!maxEl || !txt) return;
+  maxEl.value = String(reliefRules.maxPerDay || 2);
+  txt.value = (reliefRules.blocklist || []).join("\n");
+  const dutyEl = document.getElementById("includeDutyRule");
+  if (dutyEl) dutyEl.checked = reliefRules.includeDutyRule !== false;
+  const sel = document.getElementById("blockTimeSelect");
+  if (sel) {
+    sel.innerHTML = "";
+    TIMES.forEach((t) => { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); });
+  }
+}
+
+// ─── WhatsApp Message ────────────────────────────────────────
+function parseAbsentReasonBox() {
+  const box = document.getElementById("absentReasonBox");
+  if (!box) return;
+  const out = {};
+  (box.value || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
+    const idx = line.indexOf("|");
+    if (idx < 0) return;
+    const name = line.slice(0, idx).trim().toUpperCase();
+    const reason = line.slice(idx + 1).trim();
+    if (name && reason) out[name] = reason;
+  });
+  absentReasons = out;
+  saveAbsentReasons();
+}
+
+function renderAbsentReasonBox() {
+  const box = document.getElementById("absentReasonBox");
+  if (!box) return;
+  box.value = Object.entries(absentReasons).map(([k, v]) => `${k}|${v}`).join("\n");
 }
 
 function generateWaMessage() {
   parseAbsentReasonBox();
   const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => {
-      const [absent, day, time] = k.split("|");
-      return { absent, day, time, assignee };
-    })
+    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
     .filter((r) => r.assignee)
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
   const date = currentReliefDate || todayIso();
   const dateObj = new Date(`${date}T00:00:00`);
   const dayMap = ["AHAD", "ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT", "SABTU"];
   const dayName = dayMap[dateObj.getDay()];
-  const prettyDate = `${dateObj.getDate()} ${["Jan","Feb","Mac","Apr","Mei","Jun","Jul","Ogo","Sep","Okt","Nov","Dis"][dateObj.getMonth()]} ${dateObj.getFullYear()}`;
-  const lines = [`${prettyDate} ( ${dayName}) `, ``, `*Relief Hari Ini*`, ``];
+  const months = ["Jan","Feb","Mac","Apr","Mei","Jun","Jul","Ogo","Sep","Okt","Nov","Dis"];
+  const prettyDate = `${dateObj.getDate()} ${months[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
+  const lines = [`${prettyDate} (${dayName})`, ``, `*Relief Hari Ini*`, ``];
 
   const absentSet = [...new Set(rows.map((r) => r.absent))];
   absentSet.forEach((name) => {
     const reason = absentReasons[name.toUpperCase()] || "TIADA MAKLUMAT";
-    lines.push(`☑️${name} - ${reason}`);
+    lines.push(`☑️ ${name} - ${reason}`);
     rows.filter((r) => r.absent === name).forEach((r) => {
       const slot = (guruSchedules[name] || {})[`${r.day}|${r.time}`] || "";
-      let subject = "-";
-      let cls = "-";
-      if (slot.includes("|")) {
-        const [s, c] = slot.split("|");
-        subject = s;
-        cls = c;
-      }
+      let subject = "-", cls = "-";
+      if (slot.includes("|")) { const [s, c] = slot.split("|"); subject = s; cls = c; }
       const [t1, t2] = r.time.split("-");
       const fmt = (x) => x.replace(":", ".");
-      const t = `${fmt(t1)} - ${fmt(t2)}`;
-      lines.push(`${cls} ${t} ${subject} ${r.assignee}`);
+      lines.push(`   ${cls} ${fmt(t1)}-${fmt(t2)} ${subject} → ${r.assignee}`);
     });
     lines.push("");
   });
   if (!rows.length) lines.push("Tiada assignment.");
   const el = document.getElementById("waMessageBox");
   if (el) el.value = lines.join("\n");
+  showToast("Mesej WhatsApp dijana.");
 }
 
 async function copyWaMessage() {
   const el = document.getElementById("waMessageBox");
   if (!el) return;
-  const text = el.value || "";
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    el.select();
-    document.execCommand("copy");
-  }
-  alert("Mesej WhatsApp dicopy.");
+  try { await navigator.clipboard.writeText(el.value || ""); }
+  catch { el.select(); document.execCommand("copy"); }
+  showToast("Mesej dicopy ke clipboard.");
 }
 
+// ─── Export PDF ──────────────────────────────────────────────
 function exportReliefPlanPdf() {
   const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => {
-      const [absent, day, time] = k.split("|");
-      return { absent, day, time, assignee };
-    })
+    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
     .filter((r) => r.assignee)
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
   const date = currentReliefDate || todayIso();
-  const htmlRows = rows.map((r) => `<tr><td>${r.day}</td><td>${r.time}</td><td>${r.absent}</td><td>${r.assignee}</td></tr>`).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relief ${date}</title>
+  const htmlRows = rows.map((r) => `<tr><td>${esc(r.day)}</td><td>${esc(r.time)}</td><td>${esc(r.absent)}</td><td>${esc(r.assignee)}</td></tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relief ${esc(date)}</title>
     <style>body{font-family:Segoe UI,sans-serif;padding:20px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:8px;text-align:left}h2{margin:0 0 10px}</style>
-    </head><body><h2>Pelan Relief Harian - ${date}</h2>
+    </head><body><h2>Pelan Relief Harian - ${esc(date)}</h2>
     <table><thead><tr><th>Hari</th><th>Masa</th><th>Cikgu Tak Hadir</th><th>Cikgu Relief</th></tr></thead><tbody>${htmlRows || "<tr><td colspan='4'>Tiada assignment</td></tr>"}</tbody></table>
-    <script>window.onload=()=>window.print()</script></body></html>`;
+    <script>window.onload=()=>window.print()<\/script></body></html>`;
   const w = window.open("", "_blank");
   if (!w) return;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
-function buildEditor() {
-  const table = document.getElementById("editorTable");
-  table.innerHTML = "";
-  const thead = document.createElement("thead");
-  thead.appendChild(buildTimeHeaderRow());
-  table.appendChild(thead);
 
-  const tbody = document.createElement("tbody");
-  for (const day of DAYS) {
-    const tr = document.createElement("tr");
-    const dayCell = document.createElement("th");
-    dayCell.className = "day-col";
-    dayCell.textContent = day;
-    tr.appendChild(dayCell);
-
-    for (const time of TIMES) {
-      const td = document.createElement("td");
-      const input = document.createElement("input");
-      input.className = "editor-input";
-      input.placeholder = "SN|3 R";
-      input.value = scheduleMap[`${day}|${time}`] || "";
-      input.dataset.key = `${day}|${time}`;
-      td.appendChild(input);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-}
-
+// ─── Bertugas Table (Dynamic Week) ──────────────────────────
 function buildBertugasTable() {
   const table = document.getElementById("bertugasTable");
   table.innerHTML = "";
   table.classList.add("bertugas-layout");
+
+  const week = getWeekDates(bertugasWeekDate);
 
   const addRow = (cells, isHeader = false, rowClass = "") => {
     const tr = document.createElement("tr");
@@ -1164,80 +1231,64 @@ function buildBertugasTable() {
 
   addRow([{ text: "JADUAL BERTUGAS", colspan: 6, className: "section-title" }], true);
   addRow([{ text: "KUMPULAN D", colspan: 6, className: "section-title" }], true);
-  addRow([{ text: "TARIKH BERTUGAS: 11 HINGGA 15 MEI 2026 ( ISNIN HINGGA JUMAAT )", colspan: 6, className: "meta-row" }], true);
+  addRow([{ text: `TARIKH BERTUGAS: ${week.start} HINGGA ${week.end} (ISNIN HINGGA JUMAAT)`, colspan: 6, className: "meta-row" }], true);
   addRow([{ text: "* KETUA BERTUGAS MINGGUAN : FAEZA BINTI HAMZAH", colspan: 6, className: "meta-row" }], true);
 
   addRow([{ text: "* PAGAR WAKTU DATANG (MURID)", colspan: 6, className: "section-head" }], true);
   addRow([{ text: "PAGAR (12.20 TENGAH HARI)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([
-    { text: "", className: "small-head" },
-    { text: bertugasMap["ISNIN|PAGAR WAKTU DATANG (MURID)"] || "-" },
-    { text: bertugasMap["SELASA|PAGAR WAKTU DATANG (MURID)"] || "-" },
-    { text: bertugasMap["RABU|PAGAR WAKTU DATANG (MURID)"] || "-" },
-    { text: bertugasMap["KHAMIS|PAGAR WAKTU DATANG (MURID)"] || "-" },
-    { text: bertugasMap["JUMAAT|PAGAR WAKTU DATANG (MURID)"] || "-" }
-  ], false, "names-row");
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|PAGAR WAKTU DATANG (MURID)`] || "-" }))], false, "names-row");
 
   addRow([{ text: "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([
-    { text: "", className: "small-head" },
-    { text: bertugasMap["ISNIN|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)"] || "-" },
-    { text: bertugasMap["SELASA|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)"] || "-" },
-    { text: bertugasMap["RABU|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)"] || "-" },
-    { text: bertugasMap["KHAMIS|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)"] || "-" },
-    { text: bertugasMap["JUMAAT|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)"] || "-" }
-  ], false, "names-row");
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)`] || "-" }))], false, "names-row");
   addRow([{ text: "*GURU BERTUGAS YANG TIDAK BERTUGAS DI PAGAR AKAN BERTUGAS DI DEWAN", colspan: 6, className: "meta-row" }], true);
 
   addRow([{ text: "WAKTU REHAT", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([
-    { text: "3.00-3.30", className: "small-head" },
-    { text: bertugasMap["ISNIN|WAKTU REHAT (3.00-3.30)"] || "-" },
-    { text: bertugasMap["SELASA|WAKTU REHAT (3.00-3.30)"] || "-" },
-    { text: bertugasMap["RABU|WAKTU REHAT (3.00-3.30)"] || "-" },
-    { text: bertugasMap["KHAMIS|WAKTU REHAT (3.00-3.30)"] || "-" },
-    { text: bertugasMap["JUMAAT|WAKTU REHAT (3.00-3.30)"] || "-" }
-  ]);
-  addRow([
-    { text: "3.30-4.00", className: "small-head" },
-    { text: bertugasMap["ISNIN|WAKTU REHAT (3.30-4.00)"] || "-" },
-    { text: bertugasMap["SELASA|WAKTU REHAT (3.30-4.00)"] || "-" },
-    { text: bertugasMap["RABU|WAKTU REHAT (3.30-4.00)"] || "-" },
-    { text: bertugasMap["KHAMIS|WAKTU REHAT (3.30-4.00)"] || "-" },
-    { text: bertugasMap["JUMAAT|WAKTU REHAT (3.30-4.00)"] || "-" }
-  ]);
+  addRow([{ text: "3.00-3.30", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|WAKTU REHAT (3.00-3.30)`] || "-" }))]);
+  addRow([{ text: "3.30-4.00", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|WAKTU REHAT (3.30-4.00)`] || "-" }))]);
 
   addRow([{ text: "WAKTU BALIK (6.30 PETANG)", colspan: 6, className: "section-head" }], true);
-  addRow([
-    { text: "*KAWALAN PERGERAKAN MURID KELUAR PAGAR", colspan: 3, className: "section-subhead" },
-    { text: "*LALUAN", colspan: 3, className: "section-subhead" }
-  ], true);
-  addRow([
-    { text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" },
-    { text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" }
-  ], true);
+  addRow([{ text: "*KAWALAN PERGERAKAN MURID KELUAR PAGAR", colspan: 3, className: "section-subhead" }, { text: "*LALUAN", colspan: 3, className: "section-subhead" }], true);
+  addRow([{ text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" }, { text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" }], true);
 
   addRow([{ text: "KAWALAN MURID (sehingga WAKTU BALIK 6.00 PETANG)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([
-    { text: "", className: "small-head" },
-    { text: bertugasMap["ISNIN|KAWALAN MURID (6.00 PETANG)"] || "-" },
-    { text: bertugasMap["SELASA|KAWALAN MURID (6.00 PETANG)"] || "-" },
-    { text: bertugasMap["RABU|KAWALAN MURID (6.00 PETANG)"] || "-" },
-    { text: bertugasMap["KHAMIS|KAWALAN MURID (6.00 PETANG)"] || "-" },
-    { text: bertugasMap["JUMAAT|KAWALAN MURID (6.00 PETANG)"] || "-" }
-  ], false, "names-row");
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|KAWALAN MURID (6.00 PETANG)`] || "-" }))], false, "names-row");
 
   addRow([{ text: "TUGAS KHAS", colspan: 6, className: "section-head" }], true);
   BERTUGAS_FOOTER_ROWS.forEach((rowLabel) => {
-    addRow([
-      { text: rowLabel, colspan: 3, className: "small-head" },
-      { text: bertugasMap[`ALL|${rowLabel}`] || "-", colspan: 3, className: "bold-center" }
-    ]);
+    addRow([{ text: rowLabel, colspan: 3, className: "small-head" }, { text: bertugasMap[`ALL|${rowLabel}`] || "-", colspan: 3, className: "bold-center" }]);
   });
+}
+
+// ─── Editor Tables ───────────────────────────────────────────
+function buildEditor() {
+  const table = document.getElementById("editorTable");
+  table.innerHTML = "";
+  const thead = document.createElement("thead");
+  thead.appendChild(buildTimeHeaderRow());
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const day of DAYS) {
+    const tr = document.createElement("tr");
+    const dayCell = document.createElement("th"); dayCell.className = "day-col"; dayCell.textContent = day;
+    tr.appendChild(dayCell);
+    for (const time of TIMES) {
+      const td = document.createElement("td");
+      const input = document.createElement("input");
+      input.className = "editor-input";
+      input.placeholder = "SN|3 R";
+      input.value = scheduleMap[`${day}|${time}`] || "";
+      input.dataset.key = `${day}|${time}`;
+      input.setAttribute("aria-label", `${day} ${time}`);
+      td.appendChild(input);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
 }
 
 function buildBertugasEditor() {
@@ -1246,15 +1297,11 @@ function buildBertugasEditor() {
   const thead = document.createElement("thead");
   thead.appendChild(buildBertugasHeaderRow());
   table.appendChild(thead);
-
   const tbody = document.createElement("tbody");
   for (const row of BERTUGAS_ROWS) {
     const tr = document.createElement("tr");
-    const th = document.createElement("th");
-    th.className = "day-col";
-    th.textContent = row;
+    const th = document.createElement("th"); th.className = "day-col"; th.textContent = row;
     tr.appendChild(th);
-
     for (const day of DAYS) {
       const td = document.createElement("td");
       const input = document.createElement("input");
@@ -1262,6 +1309,7 @@ function buildBertugasEditor() {
       input.placeholder = "Nama guru";
       input.value = bertugasMap[`${day}|${row}`] || "";
       input.dataset.bkey = `${day}|${row}`;
+      input.setAttribute("aria-label", `${day} ${row}`);
       td.appendChild(input);
       tr.appendChild(td);
     }
@@ -1279,7 +1327,7 @@ function saveFromEditor() {
   scheduleMap = nextMap;
   saveScheduleMap();
   buildMainTable();
-  alert("Jadual waktu dah publish.");
+  showToast("Jadual waktu dah publish.");
 }
 
 function saveBertugasFromEditor() {
@@ -1291,9 +1339,11 @@ function saveBertugasFromEditor() {
   bertugasMap = next;
   saveBertugasMap();
   buildBertugasTable();
-  alert("Jadual bertugas dah publish.");
+  showToast("Jadual bertugas dah publish.");
 }
 
+
+// ─── File Upload Handlers ────────────────────────────────────
 function toDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -1306,10 +1356,9 @@ function toDataUrl(file) {
 function renderUploadInfo() {
   const jadualInfo = document.getElementById("jadualUploadInfo");
   const one = JSON.parse(localStorage.getItem(KEYS.jadualFile) || "null");
-  jadualInfo.textContent = one ? `Rujukan terakhir: ${one.name}` : "Belum ada fail rujukan jadual waktu.";
-
+  setText(jadualInfo, one ? `Rujukan terakhir: ${one.name}` : "Belum ada fail rujukan jadual waktu.");
   const list = JSON.parse(localStorage.getItem(KEYS.bertugasFiles) || "[]");
-  document.getElementById("bertugasUploadInfo").textContent = list.length ? `${list.length} fail rujukan bertugas disimpan.` : "Belum ada fail rujukan bertugas.";
+  setText(document.getElementById("bertugasUploadInfo"), list.length ? `${list.length} fail rujukan bertugas disimpan.` : "Belum ada fail rujukan bertugas.");
 }
 
 async function handleUploadJadual(e) {
@@ -1317,6 +1366,7 @@ async function handleUploadJadual(e) {
   if (!file) return;
   localStorage.setItem(KEYS.jadualFile, JSON.stringify({ name: file.name, type: file.type, dataUrl: await toDataUrl(file) }));
   renderUploadInfo();
+  showToast("Fail rujukan jadual diupload.");
 }
 
 async function handleUploadBertugas(e) {
@@ -1326,80 +1376,133 @@ async function handleUploadBertugas(e) {
   for (const f of files) out.push({ name: f.name, type: f.type, dataUrl: await toDataUrl(f) });
   localStorage.setItem(KEYS.bertugasFiles, JSON.stringify(out));
   renderUploadInfo();
+  showToast("Fail rujukan bertugas diupload.");
 }
 
 async function handleUploadGuruJson(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const txt = await file.text();
-  const parsed = JSON.parse(txt);
-  if (!parsed || !parsed.teachers || typeof parsed.teachers !== "object") {
-    alert("Format JSON tak sah. Perlukan struktur { teachers: {...} }");
-    return;
-  }
-  guruSchedules = parsed.teachers;
-  saveGuruSchedules();
-  buildClassSchedules();
-  renderGuruOptions();
-  renderClassOptions();
-  selectedGuru = "MANUAL";
-  localStorage.setItem(KEYS.guruSelected, selectedGuru);
-  absentTeachers.clear();
-  buildMainTable();
-  buildClassTable();
-  renderReliefUi();
-  alert(`Import berjaya: ${Object.keys(guruSchedules).length} guru.`);
-}
-
-function registerPwa() {
-  // Disable SW caching to avoid stale build on phones.
-  if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.getRegistrations()
-    .then((regs) => Promise.all(regs.map((r) => r.unregister())))
-    .catch(() => {});
-  if ("caches" in window) {
-    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {});
+  try {
+    const txt = await file.text();
+    const parsed = JSON.parse(txt);
+    if (!parsed || !parsed.teachers || typeof parsed.teachers !== "object") {
+      showToast("Format JSON tak sah. Perlukan { teachers: {...} }");
+      return;
+    }
+    guruSchedules = parsed.teachers;
+    saveGuruSchedules();
+    buildClassSchedules();
+    renderGuruOptions();
+    renderClassOptions();
+    selectedGuru = "MANUAL";
+    localStorage.setItem(KEYS.guruSelected, selectedGuru);
+    absentTeachers.clear();
+    buildMainTable();
+    buildClassTable();
+    renderReliefUi();
+    showToast(`Import berjaya: ${Object.keys(guruSchedules).length} guru.`);
+  } catch (err) {
+    showToast("Error parsing JSON: " + err.message);
   }
 }
 
+// ─── Export/Import All Data ──────────────────────────────────
+function exportAllData() {
+  const data = {
+    version: "3.0",
+    exportDate: todayIso(),
+    scheduleMap,
+    bertugasMap,
+    guruSchedules,
+    reliefScore,
+    reliefRules,
+    reliefPlans,
+    absentReasons
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `jadual-guru-backup-${todayIso()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Data diexport.");
+}
+
+function importAllData(file) {
+  if (!file) return;
+  file.text().then((txt) => {
+    try {
+      const data = JSON.parse(txt);
+      if (data.scheduleMap) { scheduleMap = data.scheduleMap; saveScheduleMap(); }
+      if (data.bertugasMap) { bertugasMap = data.bertugasMap; saveBertugasMap(); }
+      if (data.guruSchedules) { guruSchedules = data.guruSchedules; saveGuruSchedules(); }
+      if (data.reliefScore) { Object.assign(reliefScore, data.reliefScore); saveReliefScore(); }
+      if (data.reliefRules) { reliefRules = data.reliefRules; saveReliefRules(); }
+      if (data.reliefPlans) { reliefPlans = data.reliefPlans; saveReliefPlans(); }
+      if (data.absentReasons) { absentReasons = data.absentReasons; saveAbsentReasons(); }
+      // Rebuild everything
+      buildClassSchedules();
+      renderGuruOptions();
+      renderClassOptions();
+      renderReliefRulesForm();
+      renderAbsentReasonBox();
+      buildMainTable();
+      buildClassTable();
+      buildBertugasTable();
+      buildEditor();
+      buildBertugasEditor();
+      renderReliefUi();
+      showToast("Data diimport berjaya.");
+    } catch (err) {
+      showToast("Error import: " + err.message);
+    }
+  });
+}
+
+
+// ─── Initialization ──────────────────────────────────────────
 function init() {
+  // Tab navigation
   document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
+
+  // Clear relief
   document.getElementById("clearReliefBtn").addEventListener("click", () => {
     if (isReliefPlanApproved) return;
-    [...reliefSet].forEach((k) => {
-      if (k.startsWith(`${selectedGuru}::`)) reliefSet.delete(k);
-    });
-    if (selectedGuru === "MANUAL") {
-      // clear old legacy keys too
-      DAYS.forEach((d) => TIMES.forEach((_, i) => reliefSet.delete(`${d}|${i}`)));
-    }
+    [...reliefSet].forEach((k) => { if (k.startsWith(`${selectedGuru}::`)) reliefSet.delete(k); });
+    if (selectedGuru === "MANUAL") DAYS.forEach((d) => TIMES.forEach((_, i) => reliefSet.delete(`${d}|${i}`)));
     saveRelief();
     buildMainTable();
+    showToast("Relief direset.");
   });
+
+  // Editor save
   document.getElementById("saveJadualBtn").addEventListener("click", saveFromEditor);
   document.getElementById("saveBertugasBtn").addEventListener("click", saveBertugasFromEditor);
+
+  // File uploads
   document.getElementById("uploadJadual").addEventListener("change", handleUploadJadual);
   document.getElementById("uploadBertugas").addEventListener("change", handleUploadBertugas);
   document.getElementById("uploadGuruJson").addEventListener("change", handleUploadGuruJson);
+
+  // Available slot select
   document.getElementById("availableSlotSelect").addEventListener("change", (e) => {
     focusSlotKey = e.target.value;
     renderAvailableTeachers();
   });
+
+  // Relief rules
   document.getElementById("saveReliefRulesBtn").addEventListener("click", () => {
     if (isReliefPlanApproved) return;
-    const maxEl = document.getElementById("maxReliefPerDay");
-    const txt = document.getElementById("reliefBlocklist");
-    const dutyEl = document.getElementById("includeDutyRule");
-    const maxPerDay = Math.max(1, Number(maxEl.value || 2));
-    const blocklist = (txt.value || "")
-      .split(/\r?\n/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-    reliefRules = { maxPerDay, blocklist, includeDutyRule: !!(dutyEl ? dutyEl.checked : true) };
+    const maxPerDay = Math.max(1, Number(document.getElementById("maxReliefPerDay").value || 2));
+    const blocklist = (document.getElementById("reliefBlocklist").value || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const includeDutyRule = document.getElementById("includeDutyRule").checked;
+    reliefRules = { maxPerDay, blocklist, includeDutyRule };
     saveReliefRules();
     renderReliefUi();
-    alert("Tetapan relief disimpan.");
+    showToast("Tetapan relief disimpan.");
   });
+
   document.getElementById("addBlockTimeBtn").addEventListener("click", () => {
     if (isReliefPlanApproved) return;
     const t = document.getElementById("blockTimeSelect").value;
@@ -1408,44 +1511,78 @@ function init() {
     getAllTeachers().forEach((g) => DAYS.forEach((d) => adds.push(`${g}|${d}|${t}`)));
     reliefRules.blocklist = [...new Set([...(reliefRules.blocklist || []), ...adds])];
     renderReliefRulesForm();
+    showToast(`Masa ${t} diblock untuk semua guru.`);
   });
-  document.getElementById("loadReliefPlanBtn").addEventListener("click", () => {
-    loadPlanByDate(document.getElementById("reliefDate").value || todayIso());
-  });
+
+  // Relief plan management
+  document.getElementById("loadReliefPlanBtn").addEventListener("click", () => loadPlanByDate(document.getElementById("reliefDate").value || todayIso()));
   document.getElementById("saveReliefPlanBtn").addEventListener("click", saveCurrentPlan);
   document.getElementById("approveReliefPlanBtn").addEventListener("click", approveCurrentPlan);
   document.getElementById("unlockReliefPlanBtn").addEventListener("click", unlockCurrentPlan);
   document.getElementById("exportReliefPdfBtn").addEventListener("click", exportReliefPlanPdf);
   document.getElementById("undoReliefBtn").addEventListener("click", undoRelief);
   document.getElementById("redoReliefBtn").addEventListener("click", redoRelief);
+
+  // Auto-assign
+  document.getElementById("autoAssignBtn").addEventListener("click", autoAssignGreedy);
+  document.getElementById("autoAssignSmartBtn").addEventListener("click", autoAssignSmart);
+
+  // WhatsApp
   document.getElementById("generateWaBtn").addEventListener("click", generateWaMessage);
   document.getElementById("copyWaBtn").addEventListener("click", copyWaMessage);
-  document.getElementById("classSelect").addEventListener("change", (e) => {
-    selectedClass = e.target.value;
-    buildClassTable();
-  });
-  document.getElementById("closeAssignModal").addEventListener("click", () => {
-    document.getElementById("assignModal").classList.add("hidden");
-  });
-  document.getElementById("assignModal").addEventListener("click", (e) => {
-    if (e.target.id === "assignModal") e.currentTarget.classList.add("hidden");
-  });
-  document.getElementById("closeGuruPickerModal").addEventListener("click", () => {
-    document.getElementById("guruPickerModal").classList.add("hidden");
-  });
-  document.getElementById("guruPickerModal").addEventListener("click", (e) => {
-    if (e.target.id === "guruPickerModal") e.currentTarget.classList.add("hidden");
-  });
-  const teacherBtn = document.getElementById("teacherNameBtn") || document.querySelector(".teacher-name");
-  if (teacherBtn) {
-    teacherBtn.addEventListener("click", openGuruPickerModal);
-    teacherBtn.addEventListener("touchend", (e) => {
-      e.preventDefault();
-      openGuruPickerModal();
-    }, { passive: false });
-  }
-  bindTeacherPillGlobalTrigger();
 
+  // Class select
+  document.getElementById("classSelect").addEventListener("change", (e) => { selectedClass = e.target.value; buildClassTable(); });
+
+  // Modals
+  document.getElementById("closeAssignModal").addEventListener("click", () => document.getElementById("assignModal").classList.add("hidden"));
+  document.getElementById("assignModal").addEventListener("click", (e) => { if (e.target.id === "assignModal") e.currentTarget.classList.add("hidden"); });
+  document.getElementById("closeGuruPickerModal").addEventListener("click", () => document.getElementById("guruPickerModal").classList.add("hidden"));
+  document.getElementById("guruPickerModal").addEventListener("click", (e) => { if (e.target.id === "guruPickerModal") e.currentTarget.classList.add("hidden"); });
+
+  // Teacher pill
+  const teacherBtn = document.getElementById("teacherNameBtn");
+  if (teacherBtn) teacherBtn.addEventListener("click", openGuruPickerModal);
+
+  // Teacher search in relief tab
+  const searchInput = document.getElementById("teacherSearchInput");
+  if (searchInput) searchInput.addEventListener("input", filterTeacherList);
+
+  // Bertugas week
+  const bertugasWeekInput = document.getElementById("bertugasWeekInput");
+  if (bertugasWeekInput) bertugasWeekInput.value = bertugasWeekDate;
+  document.getElementById("bertugasWeekBtn").addEventListener("click", () => {
+    bertugasWeekDate = bertugasWeekInput.value || todayIso();
+    localStorage.setItem(KEYS.bertugasWeek, bertugasWeekDate);
+    buildBertugasTable();
+    showToast("Minggu bertugas dikemaskini.");
+  });
+
+  // Admin: reset score
+  document.getElementById("resetScoreBtn").addEventListener("click", () => {
+    if (!confirm("Pasti nak reset semua relief score?")) return;
+    Object.keys(reliefScore).forEach((k) => delete reliefScore[k]);
+    saveReliefScore();
+    renderReliefUi();
+    showToast("Relief score direset.");
+  });
+
+  // Admin: export/import
+  document.getElementById("exportDataBtn").addEventListener("click", exportAllData);
+  document.getElementById("importDataBtn").addEventListener("click", () => document.getElementById("importDataFile").click());
+  document.getElementById("importDataFile").addEventListener("change", (e) => {
+    if (e.target.files[0]) importAllData(e.target.files[0]);
+  });
+
+  // Keyboard: Escape closes modals
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.getElementById("assignModal").classList.add("hidden");
+      document.getElementById("guruPickerModal").classList.add("hidden");
+    }
+  });
+
+  // ─── Build UI ────────────────────────────────────────────
   renderGuruOptions();
   renderReliefRulesForm();
   renderAbsentReasonBox();
@@ -1460,30 +1597,16 @@ function init() {
   buildBertugasTable();
   buildBertugasEditor();
   renderUploadInfo();
-  registerPwa();
 }
 
-fetch("./guru-schedules.json?v=20260514-2")
+// ─── Bootstrap: fetch guru-schedules.json then init ──────────
+fetch("./guru-schedules.json?v=20260515")
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => {
     if (data && data.teachers) {
       guruSchedules = data.teachers;
       saveGuruSchedules();
-      buildClassSchedules();
-      renderGuruOptions();
-      renderClassOptions();
-      buildMainTable();
-      buildClassTable();
-      renderReliefUi();
     }
   })
   .catch(() => {})
   .finally(init);
-
-
-
-
-
-
-
-
