@@ -167,6 +167,7 @@ let undoStack = [];
 let redoStack = [];
 let absentReasons = loadAbsentReasons();
 let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
+let closedClasses = new Set(); // Format: "KELAS_NAME" — kelas yang ditutup hari ini
 
 // ─── Load/Save Functions ─────────────────────────────────────
 function loadScheduleMap() {
@@ -245,12 +246,13 @@ function redoRelief() {
 function setReliefStatus(text) { setText(document.getElementById("reliefPlanStatus"), text); }
 
 function getCurrentPlanPayload() {
-  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], approved: isReliefPlanApproved, rules: reliefRules };
+  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], approved: isReliefPlanApproved, rules: reliefRules, closedClasses: [...closedClasses] };
 }
 function applyPlanPayload(plan) {
   reliefAssignments = { ...(plan.assignments || {}) };
   absentTeachers.clear();
   (plan.absentTeachers || []).forEach((x) => absentTeachers.add(x));
+  closedClasses = new Set(plan.closedClasses || []);
   isReliefPlanApproved = !!plan.approved;
   if (plan.rules) reliefRules = plan.rules;
   renderReliefRulesForm();
@@ -262,7 +264,8 @@ function loadPlanByDate(dateStr) {
   if (input) input.value = currentReliefDate;
   const found = reliefPlans[currentReliefDate];
   if (found) { applyPlanPayload(found); }
-  else { reliefAssignments = {}; absentTeachers.clear(); isReliefPlanApproved = false; setReliefStatus("Status: Draft (Plan baru)"); }
+  else { reliefAssignments = {}; absentTeachers.clear(); closedClasses = new Set(); isReliefPlanApproved = false; setReliefStatus("Status: Draft (Plan baru)"); }
+  renderClosedClassesUi();
   renderReliefUi();
 }
 function saveCurrentPlan() {
@@ -277,6 +280,61 @@ function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); 
 
 // ─── Helper: Get all teachers ────────────────────────────────
 function getAllTeachers() { return Object.keys(guruSchedules).sort(); }
+
+// ─── Helper: Get relief day from selected date ───────────────
+function getReliefDay() {
+  if (!currentReliefDate) return "";
+  const d = new Date(currentReliefDate + "T00:00:00");
+  const dayIdx = d.getDay(); // 0=Sun, 1=Mon...
+  const map = { 1: "ISNIN", 2: "SELASA", 3: "RABU", 4: "KHAMIS", 5: "JUMAAT" };
+  return map[dayIdx] || "";
+}
+
+// ─── Helper: Get all classes from guru schedules ─────────────
+function getAllClasses() {
+  const classes = new Set();
+  Object.values(guruSchedules).forEach((map) => {
+    Object.values(map || {}).forEach((v) => {
+      if (!v || !v.includes("|")) return;
+      const cls = v.split("|")[1];
+      if (cls) classes.add(cls);
+    });
+  });
+  return [...classes].sort();
+}
+
+// ─── Tutup Kelas: get teachers freed by closing a class ──────
+function getTeachersFreedByClosedClasses(day) {
+  // Returns a Set of teachers who are freed because their class is closed on this day
+  const freed = new Set();
+  if (!closedClasses.size || !day) return freed;
+  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+    Object.entries(map || {}).forEach(([key, val]) => {
+      if (!val || !val.includes("|")) return;
+      const [slotDay] = key.split("|");
+      if (slotDay !== day) return;
+      const cls = val.split("|")[1];
+      if (cls && closedClasses.has(cls)) freed.add(teacher);
+    });
+  });
+  return freed;
+}
+
+// ─── Tutup Kelas: get slots freed for a teacher ──────────────
+function getFreedSlotsForTeacher(teacher, day) {
+  // Returns time slots that are freed because the class is closed
+  const freed = [];
+  if (!closedClasses.size || !day) return freed;
+  const map = guruSchedules[teacher] || {};
+  Object.entries(map).forEach(([key, val]) => {
+    if (!val || !val.includes("|")) return;
+    const [slotDay, time] = key.split("|");
+    if (slotDay !== day) return;
+    const cls = val.split("|")[1];
+    if (cls && closedClasses.has(cls)) freed.push(time);
+  });
+  return freed;
+}
 
 // ─── Relief Eligibility Logic ────────────────────────────────
 function getAssignedCountByTeacherDay() {
@@ -350,9 +408,20 @@ function wouldLoseAllBreaks(teacher, day, newSlotTime) {
 function getEligibleTeachers(day, time, excludeSet) {
   const dailyCounts = getAssignedCountByTeacherDay();
   const maxPerDay = Number(reliefRules.maxPerDay || 2);
+  const freedByClass = getTeachersFreedByClosedClasses(day);
   return getAllTeachers()
     .filter((t) => !excludeSet.has(t))
-    .filter((t) => !(guruSchedules[t] || {})[`${day}|${time}`])
+    .filter((t) => {
+      const hasClass = !!(guruSchedules[t] || {})[`${day}|${time}`];
+      if (!hasClass) return true; // already free
+      // If teacher has class but that class is closed, they're available
+      if (hasClass && freedByClass.has(t)) {
+        const val = (guruSchedules[t] || {})[`${day}|${time}`] || "";
+        const cls = val.split("|")[1] || "";
+        if (closedClasses.has(cls)) return true;
+      }
+      return false;
+    })
     .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < maxPerDay)
@@ -382,9 +451,12 @@ function rankByScore(teachers) {
 
 // ─── AUTO-ASSIGN Relief ──────────────────────────────────────
 // Greedy: assign one by one, prioritize same-subject, lowest score
+// Only assigns for the selected relief day
 function autoAssignGreedy() {
   if (isReliefPlanApproved) return;
   if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  const reliefDay = getReliefDay();
+  if (!reliefDay) { showToast("Tarikh yang dipilih bukan hari sekolah."); return; }
   pushUndoState();
   const subjectMap = getSubjectTeachersMap();
   let assigned = 0;
@@ -395,9 +467,10 @@ function autoAssignGreedy() {
     const map = guruSchedules[absentName] || {};
     Object.entries(map).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
+      const [day, time] = key.split("|");
+      if (day !== reliefDay) return; // Only process today's slots
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return; // already assigned
-      const [day, time] = key.split("|");
       const subject = val.split("|")[0].trim().toUpperCase();
       const excludeSet = new Set(absent);
       const eligible = getEligibleTeachers(day, time, excludeSet);
@@ -419,27 +492,31 @@ function autoAssignGreedy() {
   saveReliefScore();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
-  if (log) log.textContent = `Auto-assign selesai: ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
+  if (log) log.textContent = `Auto-assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
   showToast(`Auto-assign: ${assigned} slot diisi.`);
 }
 
-// Smart: uses backtracking to minimize max load on any single teacher
+// Smart: uses constraint-first to minimize max load on any single teacher
+// Only assigns for the selected relief day
 function autoAssignSmart() {
   if (isReliefPlanApproved) return;
   if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  const reliefDay = getReliefDay();
+  if (!reliefDay) { showToast("Tarikh yang dipilih bukan hari sekolah."); return; }
   pushUndoState();
   const subjectMap = getSubjectTeachersMap();
   const absent = [...absentTeachers];
 
-  // Collect all unassigned slots
+  // Collect all unassigned slots FOR TODAY ONLY
   const slots = [];
   absent.forEach((absentName) => {
     const map = guruSchedules[absentName] || {};
     Object.entries(map).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
+      const [day, time] = key.split("|");
+      if (day !== reliefDay) return; // Only today
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return;
-      const [day, time] = key.split("|");
       const subject = val.split("|")[0].trim().toUpperCase();
       slots.push({ assignKey, day, time, subject, absentName });
     });
@@ -462,14 +539,12 @@ function autoAssignSmart() {
   // Greedy with constraint propagation
   for (const slot of slots) {
     const pool = slot.sameSubj.length ? slot.sameSubj : slot.eligible;
-    // Re-filter with current daily counts
     const candidates = pool.filter((t) => {
       const key = `${t}|${slot.day}`;
       return (dailyCount[key] || 0) < maxPerDay;
     });
     const ranked = rankByScore(candidates);
     if (ranked.length) {
-      // Pick from the lowest-score tier randomly for variety
       const minScore = ranked[0].score;
       const tier = ranked.filter((r) => r.score === minScore);
       const chosen = tier[Math.floor(Math.random() * tier.length)].name;
@@ -486,7 +561,7 @@ function autoAssignSmart() {
   saveReliefScore();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
-  if (log) log.textContent = `Smart assign selesai: ${assigned} slot diisi, ${skipped} slot tiada guru available. (Constraint-first algorithm)`;
+  if (log) log.textContent = `Smart assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
   showToast(`Smart assign: ${assigned} slot diisi.`);
 }
 
@@ -793,16 +868,25 @@ function buildReliefTeacherTable() {
     setText(label, "Belum pilih cikgu.");
     return;
   }
-  setText(label, `Cikgu dipilih: ${focusAbsentTeacher}`);
+  const reliefDay = getReliefDay();
+  setText(label, `Cikgu dipilih: ${focusAbsentTeacher}${reliefDay ? ` (${reliefDay})` : ""}`);
   const map = guruSchedules[focusAbsentTeacher] || {};
   slotSubjectMap = {};
   const allBusySlots = [];
   const thead = document.createElement("thead");
-  thead.appendChild(buildTimeHeaderRow());
+
+  // Build header: only show HARI + time slots
+  const headerRow = document.createElement("tr");
+  const th0 = document.createElement("th"); th0.textContent = "HARI"; headerRow.appendChild(th0);
+  TIMES.forEach((t) => { const th = document.createElement("th"); th.textContent = t; headerRow.appendChild(th); });
+  thead.appendChild(headerRow);
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
 
-  for (const day of DAYS) {
+  // Only show the relief day (or all days if no date selected)
+  const daysToShow = reliefDay ? [reliefDay] : DAYS;
+
+  for (const day of daysToShow) {
     const tr = document.createElement("tr");
     const th = document.createElement("th");
     th.className = "day-col";
@@ -1025,15 +1109,18 @@ function renderReliefUi() {
   renderTeacherLoadSummary();
   renderClashWarning();
   renderReliefStats();
+  renderClosedClassesUi();
 }
 
 function renderFinalReliefPlan() {
   const wrap = document.getElementById("finalReliefPlan");
   if (!wrap) return;
   wrap.innerHTML = "";
+  const reliefDay = getReliefDay();
   const rows = Object.entries(reliefAssignments)
     .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
     .filter((r) => r.assignee)
+    .filter((r) => !reliefDay || r.day === reliefDay) // Only show today's
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
 
   if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>"; return; }
@@ -1103,6 +1190,73 @@ function renderReliefStats() {
     const v = document.createElement("div"); v.className = "stat-value"; v.textContent = s.value;
     card.appendChild(n); card.appendChild(v);
     wrap.appendChild(card);
+  });
+}
+
+// ─── Tutup Kelas UI ─────────────────────────────────────────
+function renderClosedClassesUi() {
+  const wrap = document.getElementById("closedClassList");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const reliefDay = getReliefDay();
+  [...closedClasses].sort().forEach((cls) => {
+    const tag = document.createElement("div");
+    tag.className = "absent-tag";
+    tag.style.background = "#fff3cd";
+    tag.style.color = "#856404";
+    tag.style.borderColor = "#ffc107";
+    const label = document.createElement("span");
+    label.textContent = cls;
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.style.color = "#856404";
+    removeBtn.title = "Buka semula kelas";
+    removeBtn.addEventListener("click", () => {
+      if (isReliefPlanApproved) return;
+      closedClasses.delete(cls);
+      renderClosedClassesUi();
+      renderReliefUi();
+    });
+    tag.appendChild(label);
+    tag.appendChild(removeBtn);
+    wrap.appendChild(tag);
+  });
+
+  // Show freed teachers info
+  const info = document.getElementById("closedClassInfo");
+  if (info) {
+    if (closedClasses.size && reliefDay) {
+      const freed = getTeachersFreedByClosedClasses(reliefDay);
+      info.textContent = freed.size ? `Guru jadi available (${reliefDay}): ${[...freed].sort().join(", ")}` : "Tiada guru tambahan dibebaskan.";
+    } else {
+      info.textContent = "";
+    }
+  }
+}
+
+function addClosedClass() {
+  if (isReliefPlanApproved) return;
+  const sel = document.getElementById("closedClassSelect");
+  if (!sel || !sel.value) return;
+  closedClasses.add(sel.value);
+  renderClosedClassesUi();
+  renderReliefUi();
+  showToast(`Kelas ${sel.value} ditutup.`);
+}
+
+function renderClosedClassOptions() {
+  const sel = document.getElementById("closedClassSelect");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = "-- Pilih kelas --";
+  sel.appendChild(opt0);
+  getAllClasses().forEach((cls) => {
+    const o = document.createElement("option");
+    o.value = cls;
+    o.textContent = cls;
+    sel.appendChild(o);
   });
 }
 
@@ -1394,6 +1548,7 @@ async function handleUploadGuruJson(e) {
     buildClassSchedules();
     renderGuruOptions();
     renderClassOptions();
+    renderClosedClassOptions();
     selectedGuru = "MANUAL";
     localStorage.setItem(KEYS.guruSelected, selectedGuru);
     absentTeachers.clear();
@@ -1527,6 +1682,9 @@ function init() {
   document.getElementById("autoAssignBtn").addEventListener("click", autoAssignGreedy);
   document.getElementById("autoAssignSmartBtn").addEventListener("click", autoAssignSmart);
 
+  // Tutup Kelas
+  document.getElementById("addClosedClassBtn").addEventListener("click", addClosedClass);
+
   // WhatsApp
   document.getElementById("generateWaBtn").addEventListener("click", generateWaMessage);
   document.getElementById("copyWaBtn").addEventListener("click", copyWaMessage);
@@ -1589,6 +1747,7 @@ function init() {
   loadPlanByDate(todayIso());
   buildClassSchedules();
   renderClassOptions();
+  renderClosedClassOptions();
   bindReliefDropzone();
   renderReliefUi();
   buildMainTable();

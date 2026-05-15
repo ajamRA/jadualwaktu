@@ -55,12 +55,23 @@
       </div>
       <div class="card">
         <h3>Auto-Assign</h3>
-        <p class="hint">Klik butang di bawah untuk sistem auto-assign semua slot guru tak hadir secara automatik (ikut keutamaan subjek & fairness score).</p>
+        <p class="hint">Klik butang di bawah untuk sistem auto-assign semua slot guru tak hadir secara automatik (ikut keutamaan subjek & fairness score). Hanya untuk hari yang dipilih.</p>
         <div class="toolbar">
           <button id="autoAssignBtn" class="btn">Auto-Assign Semua</button>
           <button id="autoAssignSmartBtn" class="btn secondary">Smart Assign (Optimum)</button>
         </div>
         <div id="autoAssignLog" class="hint"></div>
+      </div>
+      <div class="card">
+        <h3>Tutup Kelas</h3>
+        <p class="hint">Jika guru terlalu ramai tak hadir, tutup kelas tertentu. Guru yang mengajar kelas tu pada hari ini akan jadi available untuk relief.</p>
+        <div class="toolbar">
+          <label for="closedClassSelect">Pilih Kelas:</label>
+          <select id="closedClassSelect" aria-label="Pilih kelas untuk ditutup"></select>
+          <button id="addClosedClassBtn" class="btn secondary">Tutup Kelas</button>
+        </div>
+        <div id="closedClassList" class="absent-list" style="margin-top:8px"></div>
+        <p id="closedClassInfo" class="hint"></p>
       </div>
       <div class="card">
         <h3>Tetapan Relief</h3>
