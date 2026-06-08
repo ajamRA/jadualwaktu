@@ -503,6 +503,15 @@ code {
 }
 .jadual { border-collapse: collapse; width: 100%; min-width: 1080px; }
 .jadual-relief { min-width: 640px; }
+.guru-name {
+  margin-top: 3px;
+  font-size: 0.88rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.slot-conflict { background: rgba(217, 119, 6, 0.1); }
+.conflict-hint { color: #b45309; font-size: 0.72rem; margin-top: 4px; }
+.hidden { display: none !important; }
 .chip-row-contained {
   max-width: 100%;
   overflow-x: auto;
@@ -986,6 +995,32 @@ code {
     line-height: 1.2;
   }
   .jadual-relief .day-col {
+    min-width: 0;
+    width: 52px;
+    font-size: 0.68rem;
+    padding: 6px 4px;
+  }
+  .jadual-compact {
+    min-width: 0;
+    width: 100%;
+    table-layout: fixed;
+  }
+  .jadual-compact .slot-cell {
+    height: auto;
+    min-height: 56px;
+    font-size: 0.68rem;
+    padding: 3px 2px;
+  }
+  .jadual-compact .subjek { font-size: 0.72rem; }
+  .jadual-compact .kelas,
+  .jadual-compact .guru-name { font-size: 0.66rem; }
+  .jadual-compact thead th {
+    font-size: 0.62rem;
+    padding: 6px 2px;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .jadual-compact .day-col {
     min-width: 0;
     width: 52px;
     font-size: 0.68rem;

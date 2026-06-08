@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 ReliefUI";
+const BUILD_ID = "Build 2026-06-08 JadualFix";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -132,6 +132,7 @@ const KEYS = {
   bertugasData: "jadual-v2-bertugas-data",
   guruSchedules: "jadual-v3-guru-schedules",
   guruSelected: "jadual-v2-guru-selected",
+  classSelected: "jadual-v2-class-selected",
   reliefScore: "jadual-v2-relief-score",
   reliefRules: "jadual-v1-relief-rules",
   reliefPlans: "jadual-v1-relief-plans",
@@ -210,7 +211,10 @@ let slotSubjectMap = {};
 const reliefScore = loadReliefScore();
 let reliefRules = loadReliefRules();
 let classSchedules = {};
-let selectedClass = "";
+let classSchedulesRaw = {};
+let classSlotConflicts = {};
+let expandedTeacherCache = {};
+let selectedClass = localStorage.getItem(KEYS.classSelected) || "";
 let reliefPlans = loadReliefPlans();
 let currentReliefDate = "";
 let isReliefPlanApproved = false;
@@ -442,6 +446,55 @@ function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); 
 // ─── Helper: Get all teachers ────────────────────────────────
 function getAllTeachers() { return Object.keys(guruSchedules).sort(); }
 
+function parseSlotValue(val) {
+  if (!val || !val.includes("|")) return { subject: "", className: "" };
+  const i = val.indexOf("|");
+  return { subject: val.slice(0, i).trim(), className: val.slice(i + 1).trim() };
+}
+
+function expandDoubleSlotsInMap(map) {
+  const out = { ...(map || {}) };
+  for (const day of DAYS) {
+    for (let i = 0; i < TIMES.length - 1; i++) {
+      const k1 = `${day}|${TIMES[i]}`;
+      const k2 = `${day}|${TIMES[i + 1]}`;
+      if (out[k1] && !out[k2]) out[k2] = out[k1];
+    }
+  }
+  return out;
+}
+
+function ensureClassSchedulesRaw() {
+  if (Object.keys(classSchedulesRaw).length) return;
+  buildClassSchedules();
+}
+
+function invalidateScheduleCache() {
+  expandedTeacherCache = {};
+  classSchedulesRaw = {};
+  classSchedules = {};
+  classSlotConflicts = {};
+}
+
+function expandTeacherMap(rawMap) {
+  return expandDoubleSlotsInMap(rawMap);
+}
+
+function getTeacherMap(teacher) {
+  if (!teacher || !guruSchedules[teacher]) return {};
+  if (!expandedTeacherCache[teacher]) {
+    expandedTeacherCache[teacher] = expandTeacherMap(guruSchedules[teacher]);
+  }
+  return expandedTeacherCache[teacher];
+}
+
+function getDisplayScheduleMap() {
+  if (selectedGuru !== "MANUAL" && guruSchedules[selectedGuru]) {
+    return getTeacherMap(selectedGuru);
+  }
+  return expandDoubleSlotsInMap(scheduleMap);
+}
+
 // ─── Helper: Get relief day from selected date ───────────────
 function getReliefDay() {
   if (!currentReliefDate) return "";
@@ -511,12 +564,13 @@ function getTeachersFreedByClosedClasses(day) {
   // Returns a Set of teachers who are freed because their class is closed on this day
   const freed = new Set();
   if (!closedClasses.size || !day) return freed;
-  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+  Object.keys(guruSchedules).forEach((teacher) => {
+    const map = getTeacherMap(teacher);
     Object.entries(map || {}).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
       const [slotDay] = key.split("|");
       if (slotDay !== day) return;
-      const cls = val.split("|")[1];
+      const { className: cls } = parseSlotValue(val);
       if (cls && closedClasses.has(cls)) freed.add(teacher);
     });
   });
@@ -528,12 +582,12 @@ function getFreedSlotsForTeacher(teacher, day) {
   // Returns time slots that are freed because the class is closed
   const freed = [];
   if (!closedClasses.size || !day) return freed;
-  const map = guruSchedules[teacher] || {};
+  const map = getTeacherMap(teacher);
   Object.entries(map).forEach(([key, val]) => {
     if (!val || !val.includes("|")) return;
     const [slotDay, time] = key.split("|");
     if (slotDay !== day) return;
-    const cls = val.split("|")[1];
+    const { className: cls } = parseSlotValue(val);
     if (cls && closedClasses.has(cls)) freed.push(time);
   });
   return freed;
@@ -589,14 +643,14 @@ function isTeacherOnDutyAtSlot(teacher, day, time) {
 }
 
 function getTeacherSlotsOnDay(teacher, day) {
-  const map = guruSchedules[teacher] || {};
+  const map = getTeacherMap(teacher);
   const slots = [];
   TIMES.forEach((t, idx) => { if (map[`${day}|${t}`]) slots.push(idx); });
   return slots;
 }
 
 function wouldLoseAllBreaks(teacher, day, newSlotTime) {
-  const map = guruSchedules[teacher] || {};
+  const map = getTeacherMap(teacher);
   const occupied = new Set();
   TIMES.forEach((t, idx) => { if (map[`${day}|${t}`]) occupied.add(idx); });
   // Also count already-assigned relief slots for this teacher today
@@ -627,13 +681,14 @@ function getEligibleTeachers(day, time, excludeSet, excludeAssignKey = "") {
     .filter((t) => !excludeSet.has(t))
     .filter((t) => !busyAtSlot.has(t))
     .filter((t) => {
-      const hasClass = !!(guruSchedules[t] || {})[`${day}|${time}`];
+      const tMap = getTeacherMap(t);
+      const hasClass = !!tMap[`${day}|${time}`];
       if (!hasClass) return true; // already free
       // If teacher has class but that class is closed, they're available
       if (hasClass && freedByClass.has(t)) {
-        const val = (guruSchedules[t] || {})[`${day}|${time}`] || "";
-        const cls = val.split("|")[1] || "";
-        if (closedClasses.has(cls)) return true;
+        const val = tMap[`${day}|${time}`] || "";
+        const { className: cls } = parseSlotValue(val);
+        if (cls && closedClasses.has(cls)) return true;
       }
       return false;
     })
@@ -648,10 +703,11 @@ function getIneligibilityReason(teacher, day, time, excludeSet, excludeAssignKey
   if (getTeachersAssignedAtSlot(day, time, excludeAssignKey).has(teacher)) {
     return `${teacher}: dah assign relief pada ${time} (slot lain).`;
   }
-  const hasClass = !!(guruSchedules[teacher] || {})[`${day}|${time}`];
+  const tMap = getTeacherMap(teacher);
+  const hasClass = !!tMap[`${day}|${time}`];
   if (hasClass) {
-    const val = (guruSchedules[teacher] || {})[`${day}|${time}`] || "";
-    const cls = val.split("|")[1] || "";
+    const val = tMap[`${day}|${time}`] || "";
+    const { className: cls } = parseSlotValue(val);
     const freedByClass = getTeachersFreedByClosedClasses(day);
     if (!(freedByClass.has(teacher) && closedClasses.has(cls))) {
       return `${teacher}: ada kelas${cls ? ` (${cls})` : ""} pada ${time}.`;
@@ -714,7 +770,8 @@ function clearReliefSlot(assignKey, options = {}) {
 
 function getSubjectTeachersMap() {
   const out = {};
-  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+  getAllTeachers().forEach((teacher) => {
+    const map = getTeacherMap(teacher);
     Object.values(map || {}).forEach((v) => {
       if (!v || !v.includes("|")) return;
       const subject = v.split("|")[0].trim().toUpperCase();
@@ -751,14 +808,14 @@ function autoAssignGreedy() {
   let skipped = 0;
 
   absent.forEach((absentName) => {
-    const map = guruSchedules[absentName] || {};
+    const map = getTeacherMap(absentName);
     Object.entries(map).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only process today's slots
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return; // already assigned
-      const subject = val.split("|")[0].trim().toUpperCase();
+      const subject = parseSlotValue(val).subject.toUpperCase();
       const excludeSet = new Set(absent);
       const eligible = getEligibleTeachers(day, time, excludeSet, assignKey);
       // Prioritize same subject
@@ -799,14 +856,14 @@ function autoAssignSmart() {
   // Collect all unassigned slots FOR TODAY ONLY
   const slots = [];
   absent.forEach((absentName) => {
-    const map = guruSchedules[absentName] || {};
+    const map = getTeacherMap(absentName);
     Object.entries(map).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only today
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return;
-      const subject = val.split("|")[0].trim().toUpperCase();
+      const subject = parseSlotValue(val).subject.toUpperCase();
       slots.push({ assignKey, day, time, subject, absentName });
     });
   });
@@ -885,7 +942,8 @@ function buildMainTable() {
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
 
-  const viewMap = selectedGuru !== "MANUAL" && guruSchedules[selectedGuru] ? guruSchedules[selectedGuru] : scheduleMap;
+  const viewMap = getDisplayScheduleMap();
+  updateJadualViewLabel();
 
   for (const day of DAYS) {
     const tr = document.createElement("tr");
@@ -904,7 +962,7 @@ function buildMainTable() {
 
       const text = viewMap[key] || "";
       if (text.includes("|")) {
-        const [subjek, kelas] = text.split("|");
+        const { subject: subjek, className: kelas } = parseSlotValue(text);
         const s = document.createElement("div");
         s.className = "subjek";
         s.textContent = subjek;
@@ -955,11 +1013,21 @@ function buildMainTable() {
 // ─── Guru Picker ─────────────────────────────────────────────
 function getTeacherPillText() {
   if (selectedGuru && selectedGuru !== "MANUAL") return selectedGuru;
-  return "MUHAMAD NURAZAM BIN RAHIM";
+  return "Manual";
+}
+function updateJadualViewLabel() {
+  const el = document.getElementById("jadualViewLabel");
+  if (!el) return;
+  if (selectedGuru && selectedGuru !== "MANUAL") {
+    el.textContent = `Sedang melihat: ${selectedGuru} (slot 60 minit auto diisi)`;
+  } else {
+    el.textContent = "Mod Manual — jadual dari editor Admin";
+  }
 }
 function updateTeacherPill() {
   const pill = document.getElementById("teacherNameBtn");
   if (pill) pill.textContent = getTeacherPillText();
+  updateJadualViewLabel();
 }
 function renderGuruOptions() {
   const valid = new Set(["MANUAL", ...Object.keys(guruSchedules)]);
@@ -1019,23 +1087,42 @@ function openGuruPickerModal() {
 // ─── Class Schedule ──────────────────────────────────────────
 function buildClassSchedules() {
   const out = {};
+  classSlotConflicts = {};
   Object.entries(guruSchedules).forEach(([teacher, map]) => {
     Object.entries(map || {}).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
-      const [subj, cls] = val.split("|");
+      const { subject: subj, className: cls } = parseSlotValue(val);
       if (!cls) return;
       if (!out[cls]) out[cls] = {};
+      if (out[cls][key] && out[cls][key] !== `${subj}|${teacher}`) {
+        const cKey = `${cls}|${key}`;
+        if (!classSlotConflicts[cKey]) classSlotConflicts[cKey] = new Set();
+        classSlotConflicts[cKey].add(out[cls][key].split("|")[1]);
+        classSlotConflicts[cKey].add(teacher);
+      }
       out[cls][key] = `${subj}|${teacher}`;
     });
   });
-  classSchedules = out;
+  classSchedulesRaw = out;
+  classSchedules = {};
+  Object.entries(out).forEach(([cls, map]) => {
+    classSchedules[cls] = expandDoubleSlotsInMap(map);
+  });
+  expandedTeacherCache = {};
 }
 
 function renderClassOptions() {
   const sel = document.getElementById("classSelect");
+  const empty = document.getElementById("classEmptyHint");
   if (!sel) return;
   sel.innerHTML = "";
   const classes = Object.keys(classSchedules).sort();
+  if (!classes.length) {
+    if (empty) empty.classList.remove("hidden");
+    selectedClass = "";
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
   classes.forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); });
   if (!selectedClass || !classes.includes(selectedClass)) selectedClass = classes[0] || "";
   sel.value = selectedClass || "";
@@ -1045,6 +1132,7 @@ function buildClassTable() {
   const table = document.getElementById("classTable");
   if (!table) return;
   table.innerHTML = "";
+  if (!selectedClass) return;
   const map = classSchedules[selectedClass] || {};
   const thead = document.createElement("thead");
   thead.appendChild(buildTimeHeaderRow());
@@ -1059,12 +1147,24 @@ function buildClassTable() {
     TIMES.forEach((time) => {
       const td = document.createElement("td");
       td.className = "slot-cell";
-      const v = map[`${day}|${time}`] || "";
+      const slotKey = `${day}|${time}`;
+      const v = map[slotKey] || "";
+      const conflictKey = `${selectedClass}|${slotKey}`;
+      const conflicts = classSlotConflicts[conflictKey];
       if (v.includes("|")) {
-        const [subj, teacher] = v.split("|");
+        const i = v.indexOf("|");
+        const subj = v.slice(0, i).trim();
+        const teacher = v.slice(i + 1).trim();
         const s = document.createElement("div"); s.className = "subjek"; s.textContent = subj;
-        const k = document.createElement("div"); k.className = "kelas"; k.textContent = teacher;
-        td.appendChild(s); td.appendChild(k);
+        const g = document.createElement("div"); g.className = "guru-name"; g.textContent = teacher;
+        td.appendChild(s); td.appendChild(g);
+      }
+      if (conflicts && conflicts.size > 1) {
+        td.classList.add("slot-conflict");
+        const warn = document.createElement("div");
+        warn.className = "hint conflict-hint";
+        warn.textContent = `⚠ ${[...conflicts].join(" / ")}`;
+        td.appendChild(warn);
       }
       tr.appendChild(td);
     });
@@ -1249,7 +1349,7 @@ function buildReliefTeacherTable() {
   }
   const reliefDay = getReliefDay();
   setText(label, `Cikgu dipilih: ${focusAbsentTeacher}${reliefDay ? ` (${reliefDay})` : ""}`);
-  const map = guruSchedules[focusAbsentTeacher] || {};
+  const map = getTeacherMap(focusAbsentTeacher);
   slotSubjectMap = {};
   const allBusySlots = [];
   const thead = document.createElement("thead");
@@ -1550,7 +1650,7 @@ function renderClashWarning() {
   getReliefAssignmentRows(true).forEach((r) => {
     const key = `${r.assignee}|${r.day}|${r.time}`;
     bySlotTeacher[key] = (bySlotTeacher[key] || 0) + 1;
-    const ownClass = (guruSchedules[r.assignee] || {})[`${r.day}|${r.time}`];
+    const ownClass = getTeacherMap(r.assignee)[`${r.day}|${r.time}`];
     if (ownClass) {
       const cls = ownClass.split("|")[1] || "";
       if (!closedClasses.has(cls)) scheduleClashes++;
@@ -1724,9 +1824,13 @@ function generateWaMessage() {
     const reason = absentReasons[name.toUpperCase()] || "TIADA MAKLUMAT";
     lines.push(`☑️ ${name} - ${reason}`);
     rows.filter((r) => r.absent === name).forEach((r) => {
-      const slot = (guruSchedules[name] || {})[`${r.day}|${r.time}`] || "";
+      const slot = getTeacherMap(name)[`${r.day}|${r.time}`] || "";
       let subject = "-", cls = "-";
-      if (slot.includes("|")) { const [s, c] = slot.split("|"); subject = s; cls = c; }
+      if (slot.includes("|")) {
+        const parsed = parseSlotValue(slot);
+        subject = parsed.subject || "-";
+        cls = parsed.className || "-";
+      }
       const [t1, t2] = r.time.split("-");
       const fmt = (x) => x.replace(":", ".");
       lines.push(`   ${cls} ${fmt(t1)}-${fmt(t2)} ${subject} → ${r.assignee}`);
@@ -2751,6 +2855,7 @@ async function handleUploadGuruJson(e) {
     }
     guruSchedules = parsed.teachers;
     saveGuruSchedules();
+    invalidateScheduleCache();
     buildClassSchedules();
     renderGuruOptions();
     renderClassOptions();
@@ -2798,7 +2903,12 @@ function importAllData(file) {
       const data = JSON.parse(txt);
       if (data.scheduleMap) { scheduleMap = data.scheduleMap; saveScheduleMap(); }
       if (data.bertugasMap) { bertugasMap = data.bertugasMap; saveBertugasMap(); }
-      if (data.guruSchedules) { guruSchedules = data.guruSchedules; saveGuruSchedules(); }
+      if (data.guruSchedules) {
+        guruSchedules = data.guruSchedules;
+        saveGuruSchedules();
+        invalidateScheduleCache();
+        buildClassSchedules();
+      }
       if (data.reliefScore) { Object.assign(reliefScore, data.reliefScore); saveReliefScore(); }
       if (data.reliefRules) { reliefRules = data.reliefRules; saveReliefRules(); }
       if (data.reliefPlans) { reliefPlans = data.reliefPlans; saveReliefPlans(); }
@@ -2831,7 +2941,6 @@ function init() {
 
   // Clear relief
   document.getElementById("clearReliefBtn").addEventListener("click", () => {
-    if (isReliefPlanApproved) return;
     [...reliefSet].forEach((k) => { if (k.startsWith(`${selectedGuru}::`)) reliefSet.delete(k); });
     if (selectedGuru === "MANUAL") DAYS.forEach((d) => TIMES.forEach((_, i) => reliefSet.delete(`${d}|${i}`)));
     saveRelief();
@@ -2932,7 +3041,11 @@ function init() {
   document.getElementById("copyWaBtn").addEventListener("click", copyWaMessage);
 
   // Class select
-  document.getElementById("classSelect").addEventListener("change", (e) => { selectedClass = e.target.value; buildClassTable(); });
+  document.getElementById("classSelect").addEventListener("change", (e) => {
+    selectedClass = e.target.value;
+    localStorage.setItem(KEYS.classSelected, selectedClass);
+    buildClassTable();
+  });
 
   // Modals
   document.getElementById("closeAssignModal").addEventListener("click", () => document.getElementById("assignModal").classList.add("hidden"));
@@ -3026,9 +3139,10 @@ Promise.all([
   fetchCloudBertugas(),
   fetchCloudRelief()
 ]).then(([guruData, cloudBertugasResult, cloudReliefResult]) => {
-  if (guruData?.teachers) {
+  if (guruData?.teachers && !Object.keys(guruSchedules).length) {
     guruSchedules = guruData.teachers;
     saveGuruSchedules();
+    invalidateScheduleCache();
   }
   const cloudBertugas = cloudBertugasResult?.data;
   const cloudBertugasError = cloudBertugasResult?.error;

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608reliefui" />
+  <link rel="stylesheet" href="style.css?v=20260608jadualfix" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -41,13 +41,15 @@
     <section id="tab-jadual" class="tab-panel active" role="tabpanel" aria-labelledby="tab-jadual">
       <div class="panel-head">
         <h2>Jadual Waktu Guru</h2>
-        <p class="hint">Klik kotak untuk tanda relief merah. Klik lagi untuk buang.</p>
+        <p id="jadualViewLabel" class="hint">Pilih guru di header atau mod Manual.</p>
+        <p class="hint-sm">Klik kotak untuk tanda relief merah. Slot 60 minit (2×30) auto diisi sama.</p>
       </div>
       <div class="card glass-card">
         <div class="toolbar toolbar-end">
           <button id="clearReliefBtn" class="btn secondary" aria-label="Reset tanda relief">Reset Relief</button>
         </div>
-        <div class="table-wrap glass-inset"><table id="jadualTable" class="jadual" aria-label="Jadual waktu guru"></table></div>
+        <p class="hint-sm table-scroll-hint">Swipe jadual kiri/kanan untuk lihat semua masa.</p>
+        <div class="table-wrap table-wrap-contained glass-inset"><table id="jadualTable" class="jadual jadual-compact" aria-label="Jadual waktu guru"></table></div>
       </div>
     </section>
 
@@ -217,13 +219,16 @@
     <section id="tab-kelas" class="tab-panel" role="tabpanel" aria-labelledby="tab-kelas">
       <div class="panel-head">
         <h2>Jadual Waktu Kelas</h2>
+        <p class="hint-sm">Slot 60 minit auto diisi. ⚠ = dua guru bertembung pada masa sama.</p>
       </div>
       <div class="card glass-card">
         <div class="toolbar">
           <label for="classSelect" class="field-label">Pilih Kelas</label>
           <select id="classSelect" class="input-glass" aria-label="Pilih kelas"></select>
         </div>
-        <div class="table-wrap glass-inset"><table id="classTable" class="jadual" aria-label="Jadual waktu kelas"></table></div>
+        <p id="classEmptyHint" class="hint hidden">Tiada data kelas. Upload <code>guru-schedules.json</code> di Admin.</p>
+        <p class="hint-sm table-scroll-hint">Swipe jadual kiri/kanan untuk lihat semua masa.</p>
+        <div class="table-wrap table-wrap-contained glass-inset"><table id="classTable" class="jadual jadual-compact" aria-label="Jadual waktu kelas"></table></div>
       </div>
     </section>
 
