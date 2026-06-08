@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 ReliefUI";
+const BUILD_ID = "Build 2026-06-08 ReliefDate";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -410,25 +410,80 @@ function applyPlanPayload(plan) {
   isReliefPlanApproved = !!plan.approved;
   if (plan.rules) reliefRules = plan.rules;
   renderReliefRulesForm();
-  setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"}`);
+  updateReliefPlanStatusLabel();
 }
-function loadPlanByDate(dateStr) {
-  currentReliefDate = dateStr || todayIso();
+function formatReliefDateLabel(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  const dayMap = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
+  const months = ["Jan", "Feb", "Mac", "Apr", "Mei", "Jun", "Jul", "Ogo", "Sep", "Okt", "Nov", "Dis"];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} (${dayMap[d.getDay()]})`;
+}
+
+function syncAbsentRangesForCurrentDate() {
+  const date = currentReliefDate;
+  if (!date) return;
+  [...absentTeachers].forEach((name) => {
+    const range = ensureAbsentRange(name);
+    let { start, end } = range;
+    if (!start) start = date;
+    if (!end) end = start;
+    if (date < start) start = date;
+    if (date > end) end = date;
+    absentRanges[name] = { start, end };
+  });
+  saveAbsentRanges();
+}
+
+function loadPlanByDate(dateStr, opts = {}) {
+  const { silent = false } = opts;
+  const nextDate = dateStr || todayIso();
+  if (currentReliefDate && currentReliefDate !== nextDate) {
+    reliefPlans[currentReliefDate] = getCurrentPlanPayload();
+    saveReliefPlans();
+  }
+  const prevDate = currentReliefDate;
+  currentReliefDate = nextDate;
   const input = document.getElementById("reliefDate");
   if (input) input.value = currentReliefDate;
   const found = reliefPlans[currentReliefDate];
-  if (found) { applyPlanPayload(found); }
-  else { reliefAssignments = {}; absentTeachers.clear(); closedClasses = new Set(); isReliefPlanApproved = false; setReliefStatus("Status: Draft (Plan baru)"); }
+  const isNewPlan = !found;
+  if (found) {
+    applyPlanPayload(found);
+    syncAbsentRangesForCurrentDate();
+  } else {
+    reliefAssignments = {};
+    absentTeachers.clear();
+    closedClasses = new Set();
+    isReliefPlanApproved = false;
+    setReliefStatus(`Status: Draft (Plan baru) | ${formatReliefDateLabel(currentReliefDate)}`);
+  }
+  updateReliefPlanStatusLabel();
   renderClosedClassesUi();
   renderReliefUi();
+  if (!silent && prevDate !== currentReliefDate) {
+    const day = getReliefDay();
+    if (!day) showToast(`${formatReliefDateLabel(currentReliefDate)} — hujung minggu, tiada jadual sekolah.`);
+    else if (isNewPlan) showToast(`Plan baru: ${formatReliefDateLabel(currentReliefDate)}. Tanda guru tak hadir.`);
+    else showToast(`Plan dimuat: ${formatReliefDateLabel(currentReliefDate)}.`);
+  }
+}
+
+function updateReliefPlanStatusLabel() {
+  const day = getReliefDay();
+  const dateLabel = formatReliefDateLabel(currentReliefDate);
+  const lock = isReliefPlanApproved ? "Approved (Locked)" : "Draft";
+  const dayHint = day ? ` · ${day}` : " · Bukan hari sekolah";
+  setReliefStatus(`Status: ${lock} | ${dateLabel}${dayHint}`);
 }
 function saveCurrentPlan() {
   if (!currentReliefDate) currentReliefDate = todayIso();
   reliefPlans[currentReliefDate] = getCurrentPlanPayload();
   saveAbsentRanges();
   saveReliefPlans();
-  setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"} | Saved ${currentReliefDate}`);
-  showToast("Plan disimpan.");
+  updateReliefPlanStatusLabel();
+  showToast(`Plan disimpan: ${formatReliefDateLabel(currentReliefDate)}.`);
 }
 function approveCurrentPlan() {
   if (!confirm("Approve & lock plan ini? Semua edit akan dibekukan sehingga Unlock.")) return;
@@ -437,7 +492,7 @@ function approveCurrentPlan() {
   renderReliefUi();
   showToast("Plan approved & locked.");
 }
-function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); setReliefStatus("Status: Draft (Unlocked)"); renderReliefUi(); showToast("Plan unlocked."); }
+function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); renderReliefUi(); showToast("Plan unlocked."); }
 
 // ─── Helper: Get all teachers ────────────────────────────────
 function getAllTeachers() { return Object.keys(guruSchedules).sort(); }
@@ -489,7 +544,7 @@ function autosaveReliefPlan() {
     reliefPlans[currentReliefDate] = getCurrentPlanPayload();
     saveAbsentRanges();
     saveReliefPlans();
-    setReliefStatus(`Status: Draft | Autosaved ${currentReliefDate}`);
+    updateReliefPlanStatusLabel();
   }, 400);
 }
 
@@ -1228,7 +1283,7 @@ function renderAbsentSummary() {
     if (!activeToday) {
       const note = document.createElement("div");
       note.className = "absent-range-note";
-      note.textContent = "Tak termasuk tarikh hari ini";
+      note.textContent = `Tak termasuk ${formatReliefDateLabel(currentReliefDate)}`;
       row.appendChild(note);
     }
     wrap.appendChild(row);
@@ -1493,7 +1548,32 @@ function bindReliefDropzone() {
 }
 
 // ─── Relief Summary & Stats ──────────────────────────────────
+function renderReliefDateWarning() {
+  const el = document.getElementById("reliefDateWarning");
+  if (!el) return;
+  const day = getReliefDay();
+  const activeAbsent = getAbsentTeachersForCurrentDate();
+  if (!currentReliefDate) {
+    el.textContent = "";
+    el.classList.add("hidden");
+    return;
+  }
+  if (!day) {
+    el.textContent = `${formatReliefDateLabel(currentReliefDate)} — hujung minggu. Relief hanya untuk Isnin–Jumaat.`;
+    el.classList.remove("hidden");
+    return;
+  }
+  if (absentTeachers.size && !activeAbsent.length) {
+    el.textContent = `${absentTeachers.size} guru ditanda, tapi tarikh cuti tidak cover ${formatReliefDateLabel(currentReliefDate)}. Kemaskini Mula/Sampai di bawah.`;
+    el.classList.remove("hidden");
+    return;
+  }
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
 function renderReliefUi() {
+  renderReliefDateWarning();
   renderReliefTeacherList();
   renderAbsentList();
   renderAbsentSummary();
@@ -2569,7 +2649,7 @@ function applyCloudRelief(payload, opts = {}) {
     absentTeachers.clear();
     closedClasses = new Set();
     isReliefPlanApproved = false;
-    setReliefStatus("Status: Draft (Plan baru)");
+    updateReliefPlanStatusLabel();
   }
   return true;
 }
@@ -2910,7 +2990,15 @@ function init() {
   });
 
   // Relief plan management
-  document.getElementById("loadReliefPlanBtn").addEventListener("click", () => loadPlanByDate(document.getElementById("reliefDate").value || todayIso()));
+  const reliefDateInput = document.getElementById("reliefDate");
+  document.getElementById("loadReliefPlanBtn").addEventListener("click", () => loadPlanByDate(reliefDateInput?.value || todayIso()));
+  if (reliefDateInput) {
+    reliefDateInput.addEventListener("change", () => {
+      const picked = reliefDateInput.value;
+      if (!picked || picked === currentReliefDate) return;
+      loadPlanByDate(picked);
+    });
+  }
   document.getElementById("saveReliefPlanBtn").addEventListener("click", saveCurrentPlan);
   document.getElementById("approveReliefPlanBtn").addEventListener("click", approveCurrentPlan);
   document.getElementById("unlockReliefPlanBtn").addEventListener("click", unlockCurrentPlan);
@@ -3003,7 +3091,7 @@ function init() {
   renderGuruOptions();
   renderReliefRulesForm();
   renderAbsentReasonBox();
-  loadPlanByDate(todayIso());
+  loadPlanByDate(todayIso(), { silent: true });
   buildClassSchedules();
   renderClassOptions();
   renderClosedClassOptions();

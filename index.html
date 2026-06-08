@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608reliefui" />
+  <link rel="stylesheet" href="style.css?v=20260608reliefdate" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -72,8 +72,8 @@
         <div class="plan-toolbar">
           <div class="plan-group">
             <label for="reliefDate" class="field-label">Tarikh</label>
-            <input id="reliefDate" type="date" class="input-glass plan-date-input" />
-            <button id="loadReliefPlanBtn" class="btn secondary">Load</button>
+            <input id="reliefDate" type="date" class="input-glass plan-date-input" aria-describedby="reliefDateHint" />
+            <button id="loadReliefPlanBtn" class="btn secondary" title="Muat semula tarikh dipilih">Load</button>
             <button id="saveReliefPlanBtn" class="btn">Save</button>
           </div>
           <div class="plan-group">
@@ -88,10 +88,12 @@
             <button id="pullReliefCloudBtn" class="btn secondary" type="button">Muat Cloud</button>
           </div>
         </div>
+        <p id="reliefDateHint" class="hint-sm">Tukar tarikh = auto load plan hari tersebut (Isnin–Jumaat).</p>
         <div class="status-row">
           <p id="reliefPlanStatus" class="status-pill">Status: Draft</p>
           <div id="clashWarning" class="clash-pill" role="alert" aria-live="polite"></div>
         </div>
+        <p id="reliefDateWarning" class="relief-date-warning hidden" role="alert" aria-live="polite"></p>
         <p id="reliefSyncStatus" class="hint-sm" aria-live="polite"></p>
       </div>
 
@@ -372,6 +374,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608single"></script>
+  <script src="app.js?v=20260608reliefdate"></script>
 </body>
 </html>
