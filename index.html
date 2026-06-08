@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608closesuggest" />
+  <link rel="stylesheet" href="style.css?v=20260608teacherclose" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -139,10 +139,8 @@
             <summary>Tutup Kelas</summary>
             <div class="collapsible-body">
               <p class="hint-sm">Kelas tutup = slot guru tak hadir untuk kelas itu <strong>tidak perlu relief</strong>. Guru lain yang mengajar kelas sama jadi available.</p>
-              <p class="hint-sm">Peraturan: murid tidak hadir <strong>lebih 9 orang</strong> (hadir ≤9) → patut tutup kelas. Relief separuh hari (mesyuarat) biasanya <em>tidak</em> perlu tutup jika ada relief.</p>
+              <p class="hint-sm">Cadangan ikut <strong>cikgu tak hadir</strong> & slot relief. Tutup kelas bila tiada pengganti — bukan berkaitan murid.</p>
               <div class="toolbar flex-wrap">
-                <label for="defaultClassSizeInput" class="field-label">Murid/kelas</label>
-                <input id="defaultClassSizeInput" type="number" min="1" max="45" value="30" class="input-glass input-narrow" aria-label="Anggaran bilangan murid setiap kelas" />
                 <button id="analyzeCloseClassBtn" class="btn secondary" type="button">Semak AI</button>
               </div>
               <p id="classCloseSuggestStatus" class="hint-sm" aria-live="polite"></p>
@@ -384,6 +382,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608closesuggest"></script>
+  <script src="app.js?v=20260608teacherclose"></script>
 </body>
 </html>

@@ -90,11 +90,14 @@ Return JSON: { "kumpulan":"D", "weekStart":"", "weekText":"", "assignments":{}, 
 function buildPromptReliefClose(context) {
   return `Anda pembantu guru besar sekolah rendah Malaysia (sesi PETANG 12:15-6:45).
 
+INI SISTEM RELIEF CIKGU SAHAJA — BUKAN kehadiran murid.
+
 PERATURAN TUTUP KELAS:
-- Jika murid TIDAK HADIR lebih daripada 9 orang (hadir ≤9), kelas PATUT ditutup.
-- Relief separuh hari (mesyuarat): guru hadir semula pada masa tertentu — slot SELEPAS masa itu guru sendiri mengajar; biasanya TIDAK perlu tutup kelas melainkan murid terlalu sedikit atau tiada relief untuk slot sebelum itu.
-- Tutup kelas = slot guru tak hadir untuk kelas itu tidak perlu relief; guru lain yang mengajar kelas sama jadi available untuk relief lain.
-- Jangan cadang tutup kelas jika semua slot sudah ada relief dan murid hadir mencukupi (>9).
+- Tutup kelas = slot cikgu tak hadir untuk kelas itu tidak perlu relief; cikgu lain yang mengajar kelas sama jadi available.
+- Cadang TUTUP jika slot terjejas tiada cikgu relief available (eligibleCount = 0).
+- Cadang RELIEF DULU jika slot belum assign tetapi masih ada cikgu available.
+- Relief separuh hari (mesyuarat): slot SELEPAS guru hadir semula — guru sendiri mengajar; biasanya JANGAN tutup jika slot sebelum itu sudah ada relief.
+- Jika lebih 9 cikgu tak hadir sekolah, semak semula kelas terjejas dengan teliti.
 
 DATA ANALISIS HARI INI:
 ${JSON.stringify(context, null, 2)}

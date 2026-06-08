@@ -844,12 +844,7 @@ code {
   align-items: flex-end;
   margin-top: 8px;
 }
-.close-suggest-murid {
-  display: grid;
-  gap: 2px;
-  font-size: 0.75rem;
-  color: var(--color-muted-text);
-}
+
 
 .ineligible-box {
   margin-top: 8px;
