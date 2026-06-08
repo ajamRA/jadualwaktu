@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 SingleNama";
+const BUILD_ID = "Build 2026-06-08 CloudSync";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -2367,11 +2367,13 @@ function applyParsedBertugas(parsed) {
   return count;
 }
 
-function applyCloudBertugas(payload) {
+function applyCloudBertugas(payload, opts = {}) {
+  const { force = false } = opts;
   if (!payload?.bertugasMap || typeof payload.bertugasMap !== "object") return false;
+  if (!Object.keys(payload.bertugasMap).length) return false;
   const localAt = localStorage.getItem(KEYS.bertugasCloudAt) || "";
   const cloudAt = payload.updatedAt || "";
-  if (localAt && cloudAt && new Date(localAt) >= new Date(cloudAt)) return false;
+  if (!force && localAt && cloudAt && new Date(localAt) >= new Date(cloudAt)) return false;
 
   bertugasMap = { ...payload.bertugasMap };
   saveBertugasMap();
@@ -2398,12 +2400,47 @@ function renderBertugasSyncStatus(text) {
 async function fetchCloudBertugas() {
   try {
     const res = await fetch(`${BERTUGAS_CLOUD_GET}?v=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data && data.bertugasMap ? data : null;
-  } catch {
-    return null;
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { data: null, error: data?.error || `Ralat ${res.status}` };
+    }
+    if (data?.error) return { data: null, error: data.error };
+    if (!data?.bertugasMap || !data.updatedAt || !Object.keys(data.bertugasMap).length) {
+      return { data: null, error: null };
+    }
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err.message || "Gagal sambung cloud" };
   }
+}
+
+async function pullBertugasFromCloud(opts = {}) {
+  const { force = true, silent = false } = opts;
+  if (!silent) renderBertugasSyncStatus("Memuat dari cloud...");
+  const { data, error } = await fetchCloudBertugas();
+  if (error) {
+    renderBertugasSyncStatus(`Cloud gagal: ${error}`);
+    if (!silent) showToast(`Gagal muat cloud: ${error}`);
+    return false;
+  }
+  if (!data) {
+    renderBertugasSyncStatus("Cloud kosong — admin perlu Simpan ke Cloud dulu");
+    if (!silent) showToast("Tiada jadual dalam cloud. Simpan dari phone/PC admin dulu.");
+    return false;
+  }
+  if (!applyCloudBertugas(data, { force })) {
+    const cloudAt = data.updatedAt ? new Date(data.updatedAt).toLocaleString("ms-MY") : "";
+    renderBertugasSyncStatus(cloudAt ? `PC sudah sama/baru (${cloudAt})` : "Tiada perubahan dari cloud");
+    if (!silent) showToast("Data PC sudah sama atau lebih baru dari cloud.");
+    return false;
+  }
+  buildBertugasTable();
+  buildBertugasEditor();
+  renderUploadInfo();
+  const cloudAt = data.updatedAt ? new Date(data.updatedAt).toLocaleString("ms-MY") : "";
+  renderBertugasSyncStatus(cloudAt ? `Dimuat dari cloud: ${cloudAt}` : "Dimuat dari cloud");
+  if (!silent) showToast("Jadual bertugas dimuat dari cloud.");
+  return true;
 }
 
 async function publishBertugasCloud(opts = {}) {
@@ -2670,6 +2707,10 @@ function init() {
   if (aiParseBtn) aiParseBtn.addEventListener("click", aiParseLatestBertugasImage);
   const syncCloudBtn = document.getElementById("syncBertugasCloudBtn");
   if (syncCloudBtn) syncCloudBtn.addEventListener("click", () => publishBertugasCloud());
+  const pullCloudBtn = document.getElementById("pullBertugasCloudBtn");
+  if (pullCloudBtn) pullCloudBtn.addEventListener("click", () => pullBertugasFromCloud());
+  const pullCloudAdminBtn = document.getElementById("pullBertugasCloudAdminBtn");
+  if (pullCloudAdminBtn) pullCloudAdminBtn.addEventListener("click", () => pullBertugasFromCloud());
 
   // Available slot select
   document.getElementById("availableSlotSelect").addEventListener("change", (e) => {
@@ -2812,12 +2853,16 @@ function init() {
 Promise.all([
   fetch("./guru-schedules.json?v=20260608cloud").then((r) => (r.ok ? r.json() : null)).catch(() => null),
   fetchCloudBertugas()
-]).then(([guruData, cloudBertugas]) => {
+]).then(([guruData, cloudResult]) => {
   if (guruData?.teachers) {
     guruSchedules = guruData.teachers;
     saveGuruSchedules();
   }
-  if (cloudBertugas && applyCloudBertugas(cloudBertugas)) {
+  const cloudBertugas = cloudResult?.data;
+  const cloudError = cloudResult?.error;
+  if (cloudError) {
+    renderBertugasSyncStatus(`Cloud: ${cloudError}`);
+  } else if (cloudBertugas && applyCloudBertugas(cloudBertugas)) {
     renderUploadInfo();
     const cloudAt = cloudBertugas.updatedAt ? new Date(cloudBertugas.updatedAt).toLocaleString("ms-MY") : "";
     renderBertugasSyncStatus(cloudAt ? `Dimuat dari cloud: ${cloudAt}` : "Dimuat dari cloud");
