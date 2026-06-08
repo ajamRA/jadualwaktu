@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 ReliefDate";
+const BUILD_ID = "Build 2026-06-08 TutupKelas";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -561,37 +561,50 @@ function getAllClasses() {
   return [...classes].sort();
 }
 
+function getSlotClassName(val) {
+  if (!val || !val.includes("|")) return "";
+  return val.split("|")[1]?.trim() || "";
+}
+
+function isClosedClass(cls) {
+  return !!cls && closedClasses.has(cls);
+}
+
+function isTeacherAvailableAtSlot(teacher, day, time) {
+  if (!day || !time) return false;
+  const val = (guruSchedules[teacher] || {})[`${day}|${time}`] || "";
+  if (!val) return true;
+  return isClosedClass(getSlotClassName(val));
+}
+
 // ─── Tutup Kelas: get teachers freed by closing a class ──────
 function getTeachersFreedByClosedClasses(day) {
-  // Returns a Set of teachers who are freed because their class is closed on this day
   const freed = new Set();
   if (!closedClasses.size || !day) return freed;
   Object.entries(guruSchedules).forEach(([teacher, map]) => {
     Object.entries(map || {}).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
-      const [slotDay] = key.split("|");
+      const [slotDay, time] = key.split("|");
       if (slotDay !== day) return;
-      const cls = val.split("|")[1];
-      if (cls && closedClasses.has(cls)) freed.add(teacher);
+      if (isClosedClass(getSlotClassName(val))) freed.add(teacher);
     });
   });
   return freed;
 }
 
-// ─── Tutup Kelas: get slots freed for a teacher ──────────────
-function getFreedSlotsForTeacher(teacher, day) {
-  // Returns time slots that are freed because the class is closed
-  const freed = [];
-  if (!closedClasses.size || !day) return freed;
-  const map = guruSchedules[teacher] || {};
-  Object.entries(map).forEach(([key, val]) => {
-    if (!val || !val.includes("|")) return;
-    const [slotDay, time] = key.split("|");
-    if (slotDay !== day) return;
-    const cls = val.split("|")[1];
-    if (cls && closedClasses.has(cls)) freed.push(time);
+function getClosedClassFreedSummary(day) {
+  const summary = {};
+  if (!closedClasses.size || !day) return summary;
+  Object.entries(guruSchedules).forEach(([teacher, map]) => {
+    Object.entries(map || {}).forEach(([key, val]) => {
+      if (!val || !val.includes("|")) return;
+      const [slotDay, time] = key.split("|");
+      if (slotDay !== day || !isClosedClass(getSlotClassName(val))) return;
+      if (!summary[teacher]) summary[teacher] = [];
+      summary[teacher].push(time);
+    });
   });
-  return freed;
+  return summary;
 }
 
 // ─── Relief Eligibility Logic ────────────────────────────────
@@ -653,8 +666,12 @@ function getTeacherSlotsOnDay(teacher, day) {
 function wouldLoseAllBreaks(teacher, day, newSlotTime) {
   const map = guruSchedules[teacher] || {};
   const occupied = new Set();
-  TIMES.forEach((t, idx) => { if (map[`${day}|${t}`]) occupied.add(idx); });
-  // Also count already-assigned relief slots for this teacher today
+  TIMES.forEach((t, idx) => {
+    const val = map[`${day}|${t}`];
+    if (!val) return;
+    if (isClosedClass(getSlotClassName(val))) return;
+    occupied.add(idx);
+  });
   Object.entries(reliefAssignments).forEach(([k, assignee]) => {
     if (assignee !== teacher) return;
     const parts = k.split("|");
@@ -666,7 +683,6 @@ function wouldLoseAllBreaks(teacher, day, newSlotTime) {
   if (newIdx >= 0) occupied.add(newIdx);
   if (occupied.size < 3) return false;
   const sorted = [...occupied].sort((a, b) => a - b);
-  // Check if there's at least one gap
   for (let i = 0; i < sorted.length - 1; i++) {
     if (sorted[i + 1] - sorted[i] > 1) return false;
   }
@@ -676,22 +692,11 @@ function wouldLoseAllBreaks(teacher, day, newSlotTime) {
 function getEligibleTeachers(day, time, excludeSet, excludeAssignKey = "") {
   const dailyCounts = getAssignedCountByTeacherDay();
   const maxPerDay = Number(reliefRules.maxPerDay || 2);
-  const freedByClass = getTeachersFreedByClosedClasses(day);
   const busyAtSlot = getTeachersAssignedAtSlot(day, time, excludeAssignKey);
   return getAllTeachers()
     .filter((t) => !excludeSet.has(t))
     .filter((t) => !busyAtSlot.has(t))
-    .filter((t) => {
-      const hasClass = !!(guruSchedules[t] || {})[`${day}|${time}`];
-      if (!hasClass) return true; // already free
-      // If teacher has class but that class is closed, they're available
-      if (hasClass && freedByClass.has(t)) {
-        const val = (guruSchedules[t] || {})[`${day}|${time}`] || "";
-        const cls = val.split("|")[1] || "";
-        if (closedClasses.has(cls)) return true;
-      }
-      return false;
-    })
+    .filter((t) => isTeacherAvailableAtSlot(t, day, time))
     .filter((t) => !isTeacherOnDutyAtSlot(t, day, time))
     .filter((t) => !isBlockedByRule(t, day, time))
     .filter((t) => (dailyCounts[`${t}|${day}`] || 0) < maxPerDay)
@@ -703,14 +708,11 @@ function getIneligibilityReason(teacher, day, time, excludeSet, excludeAssignKey
   if (getTeachersAssignedAtSlot(day, time, excludeAssignKey).has(teacher)) {
     return `${teacher}: dah assign relief pada ${time} (slot lain).`;
   }
-  const hasClass = !!(guruSchedules[teacher] || {})[`${day}|${time}`];
-  if (hasClass) {
+  if (!isTeacherAvailableAtSlot(teacher, day, time)) {
     const val = (guruSchedules[teacher] || {})[`${day}|${time}`] || "";
-    const cls = val.split("|")[1] || "";
-    const freedByClass = getTeachersFreedByClosedClasses(day);
-    if (!(freedByClass.has(teacher) && closedClasses.has(cls))) {
-      return `${teacher}: ada kelas${cls ? ` (${cls})` : ""} pada ${time}.`;
-    }
+    const cls = getSlotClassName(val);
+    if (cls) return `${teacher}: ada kelas (${cls}) pada ${time}.`;
+    return `${teacher}: tak free pada ${time}.`;
   }
   if (isTeacherOnDutyAtSlot(teacher, day, time)) return `${teacher}: sedang bertugas pada ${time}.`;
   if (isBlockedByRule(teacher, day, time)) return `${teacher}: diblock oleh tetapan relief.`;
@@ -1630,11 +1632,7 @@ function renderClashWarning() {
   getReliefAssignmentRows(true).forEach((r) => {
     const key = `${r.assignee}|${r.day}|${r.time}`;
     bySlotTeacher[key] = (bySlotTeacher[key] || 0) + 1;
-    const ownClass = (guruSchedules[r.assignee] || {})[`${r.day}|${r.time}`];
-    if (ownClass) {
-      const cls = ownClass.split("|")[1] || "";
-      if (!closedClasses.has(cls)) scheduleClashes++;
-    }
+    if (!isTeacherAvailableAtSlot(r.assignee, r.day, r.time)) scheduleClashes++;
   });
   Object.values(bySlotTeacher).forEach((n) => { if (n > 1) duplicateClashes++; });
   const total = duplicateClashes + scheduleClashes;
@@ -1707,12 +1705,18 @@ function renderClosedClassesUi() {
     wrap.appendChild(tag);
   });
 
-  // Show freed teachers info
   const info = document.getElementById("closedClassInfo");
   if (info) {
     if (closedClasses.size && reliefDay) {
-      const freed = getTeachersFreedByClosedClasses(reliefDay);
-      info.textContent = freed.size ? `Guru jadi available (${reliefDay}): ${[...freed].sort().join(", ")}` : "Tiada guru tambahan dibebaskan.";
+      const summary = getClosedClassFreedSummary(reliefDay);
+      const lines = Object.entries(summary)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([teacher, slots]) => `${teacher} (${slots.length} slot: ${slots.join(", ")})`);
+      info.textContent = lines.length
+        ? `Dibebaskan pada slot kelas ditutup (${reliefDay}) sahaja: ${lines.join(" · ")}`
+        : "Tiada guru dibebaskan pada hari ini.";
+    } else if (closedClasses.size) {
+      info.textContent = "Pilih tarikh relief (Isnin–Jumaat) untuk lihat guru dibebaskan.";
     } else {
       info.textContent = "";
     }
