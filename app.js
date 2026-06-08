@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 ReliefFix";
+const BUILD_ID = "Build 2026-06-08 PersistFix";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -189,7 +189,15 @@ function getWeekDates(dateStr) {
 
 
 // ─── State ───────────────────────────────────────────────────
-const reliefSet = new Set(JSON.parse(localStorage.getItem(KEYS.relief) || "[]"));
+function loadReliefSet() {
+  try {
+    const raw = localStorage.getItem(KEYS.relief);
+    return new Set(JSON.parse(raw || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+const reliefSet = loadReliefSet();
 let scheduleMap = loadScheduleMap();
 let bertugasMap = loadBertugasMap();
 let guruSchedules = loadGuruSchedules();
@@ -1068,16 +1076,20 @@ function buildClassTable() {
 // ─── Relief UI ───────────────────────────────────────────────
 function addAbsentTeacher(name) {
   if (isReliefPlanApproved || !name) return;
-  absentTeachers.add(name);
-  ensureAbsentRange(name, true);
+  const trimmed = name.trim();
+  if (!trimmed || !getAllTeachers().includes(trimmed)) return;
+  absentTeachers.add(trimmed);
+  ensureAbsentRange(trimmed, true);
   saveAbsentRanges();
-  if (!focusAbsentTeacher) focusAbsentTeacher = name;
+  if (!focusAbsentTeacher) focusAbsentTeacher = trimmed;
+  autosaveReliefPlan();
   renderReliefUi();
 }
 function removeAbsentTeacher(name) {
   if (isReliefPlanApproved) return;
   absentTeachers.delete(name);
   if (focusAbsentTeacher === name) focusAbsentTeacher = [...absentTeachers][0] || "";
+  autosaveReliefPlan();
   renderReliefUi();
 }
 
@@ -1289,8 +1301,8 @@ function buildReliefTeacherTable() {
         td.addEventListener("drop", (e) => {
           if (isReliefPlanApproved) return;
           e.preventDefault();
-          const tName = e.dataTransfer.getData("text/plain");
-          if (!tName) return;
+          const tName = e.dataTransfer.getData("text/plain")?.trim();
+          if (!tName || !getAllTeachers().includes(tName)) return;
           assignReliefSlot(`${focusAbsentTeacher}|${k}`, tName);
         });
         td.addEventListener("click", () => {
@@ -1606,6 +1618,7 @@ function renderClosedClassesUi() {
     removeBtn.addEventListener("click", () => {
       if (isReliefPlanApproved) return;
       closedClasses.delete(cls);
+      autosaveReliefPlan();
       renderClosedClassesUi();
       renderReliefUi();
     });
@@ -1631,6 +1644,7 @@ function addClosedClass() {
   const sel = document.getElementById("closedClassSelect");
   if (!sel || !sel.value) return;
   closedClasses.add(sel.value);
+  autosaveReliefPlan();
   renderClosedClassesUi();
   renderReliefUi();
   showToast(`Kelas ${sel.value} ditutup.`);
@@ -2603,6 +2617,7 @@ async function pullReliefFromCloud(opts = {}) {
 async function publishReliefCloud(opts = {}) {
   const { silent = false } = opts;
   if (currentReliefDate) reliefPlans[currentReliefDate] = getCurrentPlanPayload();
+  saveReliefPlans();
   try {
     if (!silent) renderReliefSyncStatus("Menyimpan relief ke cloud...");
     const res = await fetch(RELIEF_CLOUD_PUBLISH, {
@@ -2613,6 +2628,7 @@ async function publishReliefCloud(opts = {}) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || `Ralat ${res.status}`);
     if (body.updatedAt) localStorage.setItem(KEYS.reliefCloudAt, body.updatedAt);
+    saveReliefPlans();
     const when = body.updatedAt ? new Date(body.updatedAt).toLocaleString("ms-MY") : "";
     renderReliefSyncStatus(when ? `Cloud sync: ${when}` : "Cloud sync OK");
     if (!silent) showToast("Plan relief disimpan ke cloud.");
@@ -2964,6 +2980,7 @@ function init() {
   document.getElementById("importDataBtn").addEventListener("click", () => document.getElementById("importDataFile").click());
   document.getElementById("importDataFile").addEventListener("change", (e) => {
     if (e.target.files[0]) importAllData(e.target.files[0]);
+    e.target.value = "";
   });
 
   // Keyboard: Escape closes modals
