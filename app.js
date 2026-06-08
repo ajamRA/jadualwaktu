@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 TutupKelas2";
+const BUILD_ID = "Build 2026-06-08 WaTutup";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -540,6 +540,7 @@ function getReliefAssignmentRows(filterByCurrentDay = true) {
     })
     .filter((r) => r.assignee && r.day && r.time)
     .filter((r) => !reliefDay || r.day === reliefDay)
+    .filter((r) => !isAbsentTeacherSlotClosed(r.absent, r.day, r.time))
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
 }
 
@@ -602,6 +603,24 @@ function clearReliefAssignmentsForClosedClass(cls) {
     if (day !== reliefDay) return;
     if (getAbsentSlotClassName(absent, day, time) === cls) clearReliefSlot(key, { skipUndo: true });
   });
+}
+
+function purgeClosedClassReliefAssignments() {
+  if (!closedClasses.size) return false;
+  let changed = false;
+  Object.keys({ ...reliefAssignments }).forEach((key) => {
+    const parts = key.split("|");
+    if (parts.length < 3) return;
+    const [absent, day, time] = parts;
+    if (!isAbsentTeacherSlotClosed(absent, day, time)) return;
+    clearReliefSlot(key, { skipUndo: true });
+    changed = true;
+  });
+  if (changed) {
+    saveReliefScore();
+    autosaveReliefPlan();
+  }
+  return changed;
 }
 
 function isTeacherAvailableAtSlot(teacher, day, time) {
@@ -1668,6 +1687,7 @@ function renderReliefDateWarning() {
 }
 
 function renderReliefUi() {
+  purgeClosedClassReliefAssignments();
   renderReliefDateWarning();
   renderReliefTeacherList();
   renderAbsentList();
@@ -1893,6 +1913,7 @@ function renderAbsentReasonBox() {
 
 function generateWaMessage() {
   parseAbsentReasonBox();
+  purgeClosedClassReliefAssignments();
   const rows = getReliefAssignmentRows(true);
   const date = currentReliefDate || todayIso();
   const dateObj = new Date(`${date}T00:00:00`);
@@ -1917,7 +1938,12 @@ function generateWaMessage() {
     });
     lines.push("");
   });
-  if (!rows.length) lines.push("Tiada assignment.");
+  if (closedClasses.size) {
+    lines.push(`*Kelas Ditutup (tiada relief):*`);
+    [...closedClasses].sort().forEach((cls) => lines.push(`- ${cls}`));
+    lines.push("");
+  }
+  if (!rows.length) lines.push("Tiada assignment relief.");
   const el = document.getElementById("waMessageBox");
   if (el) el.value = lines.join("\n");
   showToast("Mesej WhatsApp dijana.");
