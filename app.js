@@ -13,8 +13,10 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 GroqAI";
+const BUILD_ID = "Build 2026-06-08 CloudSync";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
+const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
+const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");
@@ -112,7 +114,8 @@ const KEYS = {
   bertugasWeek: "jadual-v1-bertugas-week",
   bertugasView: "jadual-v2-bertugas-view",
   groqApiKey: "jadual-v2-groq-api-key",
-  autoParseBertugas: "jadual-v2-auto-parse-bertugas"
+  autoParseBertugas: "jadual-v2-auto-parse-bertugas",
+  bertugasCloudAt: "jadual-v2-bertugas-cloud-at"
 };
 
 // ─── Utility: Safe text (XSS protection) ────────────────────
@@ -1749,6 +1752,7 @@ function saveBertugasFromEditor() {
   bertugasMap = next;
   saveBertugasMap();
   buildBertugasTable();
+  publishBertugasCloud({ silent: true });
   showToast("Jadual bertugas dah publish.");
 }
 
@@ -1970,7 +1974,72 @@ function applyParsedBertugas(parsed) {
   saveBertugasMap();
   buildBertugasTable();
   buildBertugasEditor();
+  publishBertugasCloud({ silent: true });
   return count;
+}
+
+function applyCloudBertugas(payload) {
+  if (!payload?.bertugasMap || typeof payload.bertugasMap !== "object") return false;
+  const localAt = localStorage.getItem(KEYS.bertugasCloudAt) || "";
+  const cloudAt = payload.updatedAt || "";
+  if (localAt && cloudAt && new Date(localAt) >= new Date(cloudAt)) return false;
+
+  bertugasMap = { ...payload.bertugasMap };
+  saveBertugasMap();
+  if (payload.week) {
+    bertugasWeekDate = payload.week;
+    localStorage.setItem(KEYS.bertugasWeek, bertugasWeekDate);
+  }
+  if (Array.isArray(payload.referenceImages) && payload.referenceImages.length) {
+    safeSetLocalStorage(KEYS.bertugasFiles, JSON.stringify(payload.referenceImages));
+  }
+  if (cloudAt) localStorage.setItem(KEYS.bertugasCloudAt, cloudAt);
+  return true;
+}
+
+function renderBertugasSyncStatus(text) {
+  const el = document.getElementById("bertugasSyncStatus");
+  if (el) el.textContent = text || "";
+}
+
+async function fetchCloudBertugas() {
+  try {
+    const res = await fetch(`${BERTUGAS_CLOUD_GET}?v=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.bertugasMap ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function publishBertugasCloud(opts = {}) {
+  const { silent = false } = opts;
+  const refs = loadBertugasFiles();
+  const referenceImages = refs.slice(0, 1);
+  try {
+    if (!silent) renderBertugasSyncStatus("Menyimpan ke cloud...");
+    const res = await fetch(BERTUGAS_CLOUD_PUBLISH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bertugasMap,
+        week: bertugasWeekDate,
+        referenceImages
+      })
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `Ralat ${res.status}`);
+    if (body.updatedAt) localStorage.setItem(KEYS.bertugasCloudAt, body.updatedAt);
+    const when = body.updatedAt ? new Date(body.updatedAt).toLocaleString("ms-MY") : "";
+    renderBertugasSyncStatus(when ? `Cloud sync: ${when}` : "Cloud sync OK");
+    if (!silent) showToast("Jadual bertugas disimpan ke cloud. Phone lain akan auto dapat.");
+    return true;
+  } catch (err) {
+    renderBertugasSyncStatus("Cloud sync gagal");
+    if (!silent) showToast(`Cloud sync gagal: ${err.message}`);
+    return false;
+  }
 }
 
 function setAiParseStatus(text, busy = false) {
@@ -2044,6 +2113,7 @@ async function processBertugasUpload(files, inputEl) {
   activateTab("bertugas");
   setBertugasViewMode("ref");
   showToast(`${files.length} gambar jadual bertugas dimuat naik.`);
+  publishBertugasCloud({ silent: true });
 
   const firstImage = out.find((f) => (f.type || "").startsWith("image/"));
   if (firstImage && isAutoParseBertugasEnabled() && getGroqApiKey()) {
@@ -2187,6 +2257,8 @@ function init() {
   }
   const aiParseBtn = document.getElementById("aiParseBertugasBtn");
   if (aiParseBtn) aiParseBtn.addEventListener("click", aiParseLatestBertugasImage);
+  const syncCloudBtn = document.getElementById("syncBertugasCloudBtn");
+  if (syncCloudBtn) syncCloudBtn.addEventListener("click", () => publishBertugasCloud());
 
   // Available slot select
   document.getElementById("availableSlotSelect").addEventListener("change", (e) => {
@@ -2313,14 +2385,18 @@ function init() {
   setBertugasViewMode(getBertugasViewMode());
 }
 
-// ─── Bootstrap: fetch guru-schedules.json then init ──────────
-fetch("./guru-schedules.json?v=20260608ui")
-  .then((r) => (r.ok ? r.json() : null))
-  .then((data) => {
-    if (data && data.teachers) {
-      guruSchedules = data.teachers;
-      saveGuruSchedules();
-    }
-  })
-  .catch(() => {})
-  .finally(init);
+// ─── Bootstrap: fetch guru-schedules + cloud bertugas then init ─
+Promise.all([
+  fetch("./guru-schedules.json?v=20260608cloud").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  fetchCloudBertugas()
+]).then(([guruData, cloudBertugas]) => {
+  if (guruData?.teachers) {
+    guruSchedules = guruData.teachers;
+    saveGuruSchedules();
+  }
+  if (cloudBertugas && applyCloudBertugas(cloudBertugas)) {
+    renderUploadInfo();
+    const cloudAt = cloudBertugas.updatedAt ? new Date(cloudBertugas.updatedAt).toLocaleString("ms-MY") : "";
+    renderBertugasSyncStatus(cloudAt ? `Dimuat dari cloud: ${cloudAt}` : "Dimuat dari cloud");
+  }
+}).finally(init);
