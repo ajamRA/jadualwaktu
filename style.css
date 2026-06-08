@@ -555,7 +555,12 @@ code {
 .slot-cell:hover { background: rgba(37, 99, 235, 0.08); }
 .slot-cell:focus-visible { outline: 3px solid var(--color-ring); outline-offset: -2px; }
 .slot-cell.relief { background: var(--color-destructive); color: #fff; }
-.slot-cell.assigned { background: rgba(5, 150, 105, 0.15); border-color: rgba(5, 150, 105, 0.35); }
+.slot-cell.assigned {
+  background: rgba(5, 150, 105, 0.15);
+  border-color: rgba(5, 150, 105, 0.35);
+  outline: 1px dashed rgba(5, 150, 105, 0.45);
+}
+.slot-cell.assigned:hover { background: rgba(37, 99, 235, 0.12); outline-color: rgba(37, 99, 235, 0.5); }
 .slot-cell.partial { background: rgba(217, 119, 6, 0.12); border-color: rgba(217, 119, 6, 0.35); }
 .subjek { font-weight: 700; font-size: 0.95rem; }
 .kelas { margin-top: 3px; font-size: 0.88rem; color: var(--color-muted-text); }
@@ -870,6 +875,49 @@ code {
 .ghost-btn:focus-visible { outline: 3px solid var(--color-ring); outline-offset: 2px; }
 
 .suggestions { display: grid; gap: 8px; }
+.sug-item-editable {
+  cursor: pointer;
+  transition: background var(--motion) ease, border-color var(--motion) ease;
+}
+.sug-item-editable:hover,
+.sug-item-editable:focus-visible {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.35);
+  outline: none;
+}
+.assign-current-box {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1d4ed8;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.assign-emergency {
+  margin-top: 12px;
+  border: 1px dashed #f59e0b;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #fffbeb;
+}
+.assign-emergency summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #92400e;
+  font-size: 0.88rem;
+}
+.assign-emergency-btn {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  white-space: normal;
+  line-height: 1.35;
+}
+.btn.is-current-relief {
+  border-color: #059669;
+  background: rgba(5, 150, 105, 0.12);
+}
 .sug-item {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

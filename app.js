@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 UntilTimeFix";
+const BUILD_ID = "Build 2026-06-08 EditRelief";
 const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
 const MANY_ABSENT_TEACHERS_THRESHOLD = 9;
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
@@ -926,25 +926,56 @@ function applyReliefAssignment(assignKey, teacherName, options = {}) {
 }
 
 function assignReliefSlot(assignKey, teacherName, options = {}) {
-  const { skipUndo = false, silent = false } = options;
+  const { skipUndo = false, silent = false, force = false } = options;
   const parts = assignKey.split("|");
   if (parts.length < 3 || !teacherName) return false;
   const [absentName, day, time] = parts;
+  if (isAbsentTeacherSlotClosed(absentName, day, time)) {
+    if (!silent) showToast("Kelas tutup — slot ini tidak perlu relief.");
+    return false;
+  }
   if (!isTeacherAbsentForSlot(absentName, day, time)) {
     if (!silent) showToast(`${absentName} hadir semula selepas ${formatUntilTimeLabel(getAbsentUntilTime(absentName))}.`);
     return false;
   }
   const excludeSet = new Set([...absentTeachers]);
-  if (!getEligibleTeachers(day, time, excludeSet, assignKey).includes(teacherName)) {
-    if (!silent) showToast(getIneligibilityReason(teacherName, day, time, excludeSet, assignKey));
+  if (excludeSet.has(teacherName)) {
+    if (!silent) showToast(`${teacherName} dalam senarai tak hadir.`);
     return false;
   }
+  const eligible = getEligibleTeachers(day, time, excludeSet, assignKey);
+  if (!eligible.includes(teacherName)) {
+    if (!force) {
+      if (!silent) showToast(getIneligibilityReason(teacherName, day, time, excludeSet, assignKey));
+      return false;
+    }
+  }
+  const prev = reliefAssignments[assignKey];
   if (!skipUndo) pushUndoState();
   applyReliefAssignment(assignKey, teacherName, { validate: false });
   saveReliefScore();
   autosaveReliefPlan();
-  if (!silent) renderReliefUi();
+  if (!silent) {
+    if (force && !eligible.includes(teacherName)) {
+      showToast(`Kecemasan: ${teacherName} ganti ${prev || "kosong"} (${day} ${time}).`);
+    } else if (prev && prev !== teacherName) {
+      showToast(`${teacherName} ganti ${prev} (${day} ${time}).`);
+    } else {
+      showToast(`${teacherName} di-assign untuk ${day} ${time}.`);
+    }
+    renderReliefUi();
+  }
   return true;
+}
+
+function openEditReliefSlot(absentName, day, time) {
+  if (isReliefPlanApproved || !absentName || !day || !time) return;
+  focusAbsentTeacher = absentName;
+  focusSlotKey = `${day}|${time}`;
+  const slotSel = document.getElementById("availableSlotSelect");
+  if (slotSel) slotSel.value = focusSlotKey;
+  renderAvailableTeachers();
+  openAssignModal(focusSlotKey);
 }
 
 function clearReliefSlot(assignKey, options = {}) {
@@ -1655,7 +1686,7 @@ function buildReliefTeacherTable() {
           const sDiv = document.createElement("div"); sDiv.className = "subjek"; sDiv.textContent = sub;
           const cDiv = document.createElement("div"); cDiv.className = "kelas"; cDiv.textContent = cls;
           const hDiv = document.createElement("div"); hDiv.className = "hint";
-          hDiv.textContent = assignee ? `Relief: ${assignee}` : "Klik untuk assign";
+          hDiv.textContent = assignee ? `Relief: ${assignee} — klik tukar` : "Klik untuk assign";
           td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
 
           if (assignee) {
@@ -1724,8 +1755,16 @@ function renderAvailableTeachers() {
     chip.setAttribute("tabindex", "0");
     chip.setAttribute("aria-label", `${name} score ${score}${sameSubj.includes(name) ? " subjek sama" : ""}`);
     chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", name));
+    chip.style.cursor = "pointer";
+    chip.addEventListener("click", () => {
+      if (isReliefPlanApproved) return;
+      assignReliefSlot(`${focusAbsentTeacher}|${focusSlotKey}`, name);
+    });
     chip.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") assignReliefSlot(`${focusAbsentTeacher}|${focusSlotKey}`, name);
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        assignReliefSlot(`${focusAbsentTeacher}|${focusSlotKey}`, name);
+      }
     });
     wrap.appendChild(chip);
   });
@@ -1783,31 +1822,42 @@ function openAssignModal(slotKey) {
   const excludeSet = new Set([...absentTeachers]);
   const slotAssignKey = `${focusAbsentTeacher}|${slotKey}`;
   const eligible = getEligibleTeachers(day, time, excludeSet, slotAssignKey);
+  const currentAssignee = reliefAssignments[slotAssignKey] || "";
 
   const sameSubj = eligible.filter((t) => subjectMap[subject] && subjectMap[subject].has(t));
   const rankedSubj = rankByScore(sameSubj);
   const rankedAll = rankByScore(eligible);
 
-  title.textContent = `Pilih Relief (${day} ${time}) - Subjek ${subject || "-"}`;
+  title.textContent = currentAssignee
+    ? `Tukar Relief (${day} ${time}) — semasa: ${currentAssignee}`
+    : `Pilih Relief (${day} ${time}) - Subjek ${subject || "-"}`;
 
-  const renderButtons = (arr, prefix = "") => {
+  const pickTeacher = (name, force = false) => {
+    if (isReliefPlanApproved) return;
+    if (assignReliefSlot(slotAssignKey, name, { silent: true, force })) {
+      modal.classList.add("hidden");
+      renderReliefUi();
+    }
+  };
+
+  const renderButtons = (arr, prefix = "", force = false) => {
     arr.forEach(({ name, score }) => {
       const row = document.createElement("button");
-      row.className = "btn secondary";
+      row.className = `btn secondary${name === currentAssignee ? " is-current-relief" : ""}`;
       row.style.width = "100%";
       row.style.textAlign = "left";
-      row.textContent = `${prefix}${name} (score: ${score})`;
-      row.addEventListener("click", () => {
-        if (isReliefPlanApproved) return;
-        if (assignReliefSlot(`${focusAbsentTeacher}|${slotKey}`, name, { silent: true })) {
-          modal.classList.add("hidden");
-          renderReliefUi();
-          showToast(`${name} di-assign untuk ${day} ${time}.`);
-        }
-      });
+      row.textContent = `${prefix}${name}${score !== undefined ? ` (score: ${score})` : ""}${name === currentAssignee ? " ← semasa" : ""}`;
+      row.addEventListener("click", () => pickTeacher(name, force));
       list.appendChild(row);
     });
   };
+
+  if (currentAssignee) {
+    const cur = document.createElement("div");
+    cur.className = "assign-current-box";
+    cur.textContent = `Sekarang: ${currentAssignee} — pilih cikgu lain untuk tukar, atau buang assignment.`;
+    list.appendChild(cur);
+  }
 
   if (rankedSubj.length) {
     const hint = document.createElement("div");
@@ -1832,12 +1882,38 @@ function openAssignModal(slotKey) {
   } else {
     const hint = document.createElement("div");
     hint.className = "hint";
-    hint.textContent = "Tiada cikgu available untuk slot ini.";
+    hint.textContent = "Tiada cikgu available — cuba Mod Kecemasan di bawah.";
     list.appendChild(hint);
   }
 
-  // Unassign button if already assigned
-  const currentAssignee = reliefAssignments[`${focusAbsentTeacher}|${slotKey}`];
+  const emergency = getAllTeachers()
+    .filter((t) => !excludeSet.has(t) && !eligible.includes(t))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 20);
+  if (emergency.length) {
+    const details = document.createElement("details");
+    details.className = "assign-emergency";
+    details.open = !rankedAll.length;
+    const summary = document.createElement("summary");
+    summary.textContent = "Mod Kecemasan — paksa tukar (langkau peraturan)";
+    details.appendChild(summary);
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Guna bila kecemasan: cikgu ada kelas sendiri, max relief, bertugas, dll.";
+    details.appendChild(hint);
+    emergency.forEach((name) => {
+      const row = document.createElement("button");
+      row.className = "btn warn assign-emergency-btn";
+      row.style.width = "100%";
+      row.style.textAlign = "left";
+      const reason = getIneligibilityReason(name, day, time, excludeSet, slotAssignKey);
+      row.textContent = `${name} — ${reason}`;
+      row.addEventListener("click", () => pickTeacher(name, true));
+      details.appendChild(row);
+    });
+    list.appendChild(details);
+  }
+
   if (currentAssignee) {
     const unBtn = document.createElement("button");
     unBtn.className = "btn warn";
@@ -1845,7 +1921,8 @@ function openAssignModal(slotKey) {
     unBtn.style.marginTop = "10px";
     unBtn.textContent = `Buang assignment (${currentAssignee})`;
     unBtn.addEventListener("click", () => {
-      clearReliefSlot(`${focusAbsentTeacher}|${slotKey}`);
+      if (isReliefPlanApproved) return;
+      clearReliefSlot(slotAssignKey);
       modal.classList.add("hidden");
       renderReliefUi();
       showToast("Assignment dibuang.");
@@ -1923,9 +2000,23 @@ function renderFinalReliefPlan() {
   if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>"; return; }
   rows.forEach((r) => {
     const d = document.createElement("div");
-    d.className = "sug-item";
+    d.className = "sug-item sug-item-editable";
+    if (!isReliefPlanApproved) {
+      d.setAttribute("role", "button");
+      d.setAttribute("tabindex", "0");
+      d.title = "Klik untuk tukar cikgu relief";
+      d.addEventListener("click", () => openEditReliefSlot(r.absent, r.day, r.time));
+      d.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openEditReliefSlot(r.absent, r.day, r.time);
+        }
+      });
+    }
     const t = document.createElement("div"); t.className = "sug-title"; t.textContent = `${r.day} ${r.time}`;
-    const f = document.createElement("div"); f.className = "sug-free"; f.textContent = `Tak hadir: ${r.absent} → Relief: ${r.assignee}`;
+    const f = document.createElement("div");
+    f.className = "sug-free";
+    f.textContent = `Tak hadir: ${r.absent} → Relief: ${r.assignee}${isReliefPlanApproved ? "" : " (klik tukar)"}`;
     d.appendChild(t); d.appendChild(f);
     wrap.appendChild(d);
   });
