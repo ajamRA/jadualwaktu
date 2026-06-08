@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 BertugasDuty";
+const BUILD_ID = "Build 2026-06-08 PartialAbsent";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -527,6 +527,56 @@ function isTeacherAbsentOnDate(name, dateStr) {
   return date >= start && date <= end;
 }
 
+function getAbsentUntilTime(name) {
+  return absentRanges[name]?.untilTime || "";
+}
+
+function formatUntilTimeLabel(untilTime) {
+  if (!untilTime) return "sepanjang hari";
+  const idx = TIMES.indexOf(untilTime);
+  if (idx < 0) return untilTime;
+  const prev = TIMES[idx - 1];
+  if (prev) return `mesyuarat / hadir semula ${prev.split("-")[1]}`;
+  return `hadir semula ${untilTime.split("-")[0]}`;
+}
+
+function isTeacherAbsentForSlot(name, day, time) {
+  if (!isTeacherAbsentOnDate(name)) return false;
+  const until = getAbsentUntilTime(name);
+  if (!until) return true;
+  const untilIdx = TIMES.indexOf(until);
+  const slotIdx = TIMES.indexOf(time);
+  if (untilIdx < 0 || slotIdx < 0) return true;
+  return slotIdx < untilIdx;
+}
+
+function clearReliefAssignmentsAfterUntil(name) {
+  const until = getAbsentUntilTime(name);
+  if (!until) return;
+  const untilIdx = TIMES.indexOf(until);
+  if (untilIdx < 0) return;
+  const reliefDay = getReliefDay();
+  Object.keys({ ...reliefAssignments }).forEach((key) => {
+    const parts = key.split("|");
+    if (parts.length < 3 || parts[0] !== name) return;
+    if (reliefDay && parts[1] !== reliefDay) return;
+    if (TIMES.indexOf(parts[2]) >= untilIdx) clearReliefSlot(key, { skipUndo: true });
+  });
+}
+
+function purgePartialAbsentReliefAssignments() {
+  let changed = false;
+  [...absentTeachers].forEach((name) => {
+    const before = Object.keys(reliefAssignments).length;
+    clearReliefAssignmentsAfterUntil(name);
+    if (Object.keys(reliefAssignments).length !== before) changed = true;
+  });
+  if (changed) {
+    saveReliefScore();
+    autosaveReliefPlan();
+  }
+}
+
 function getAbsentTeachersForCurrentDate() {
   return [...absentTeachers].filter((name) => isTeacherAbsentOnDate(name));
 }
@@ -541,6 +591,7 @@ function getReliefAssignmentRows(filterByCurrentDay = true) {
     .filter((r) => r.assignee && r.day && r.time)
     .filter((r) => !reliefDay || r.day === reliefDay)
     .filter((r) => !isAbsentTeacherSlotClosed(r.absent, r.day, r.time))
+    .filter((r) => isTeacherAbsentForSlot(r.absent, r.day, r.time))
     .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
 }
 
@@ -861,7 +912,11 @@ function assignReliefSlot(assignKey, teacherName, options = {}) {
   const { skipUndo = false, silent = false } = options;
   const parts = assignKey.split("|");
   if (parts.length < 3 || !teacherName) return false;
-  const [, day, time] = parts;
+  const [absentName, day, time] = parts;
+  if (!isTeacherAbsentForSlot(absentName, day, time)) {
+    if (!silent) showToast(`${absentName} hadir semula selepas ${formatUntilTimeLabel(getAbsentUntilTime(absentName))}.`);
+    return false;
+  }
   const excludeSet = new Set([...absentTeachers]);
   if (!getEligibleTeachers(day, time, excludeSet, assignKey).includes(teacherName)) {
     if (!silent) showToast(getIneligibilityReason(teacherName, day, time, excludeSet, assignKey));
@@ -932,6 +987,7 @@ function autoAssignGreedy() {
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only process today's slots
       if (isAbsentTeacherSlotClosed(absentName, day, time)) { closed++; return; }
+      if (!isTeacherAbsentForSlot(absentName, day, time)) return;
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return; // already assigned
       const subject = val.split("|")[0].trim().toUpperCase();
@@ -987,6 +1043,7 @@ function autoAssignSmart() {
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only today
       if (isAbsentTeacherSlotClosed(absentName, day, time)) { closed++; return; }
+      if (!isTeacherAbsentForSlot(absentName, day, time)) return;
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return;
       const subject = val.split("|")[0].trim().toUpperCase();
@@ -1387,8 +1444,10 @@ function updateAbsentRange(name, field, value) {
     else next.start = next.end;
   }
   absentRanges[name] = next;
+  if (field === "untilTime") clearReliefAssignmentsAfterUntil(name);
   saveAbsentRanges();
   renderAbsentSummary();
+  if (field === "untilTime") renderReliefUi();
 }
 
 function renderAbsentSummary() {
@@ -1440,9 +1499,49 @@ function renderAbsentSummary() {
     endInput.addEventListener("change", () => updateAbsentRange(name, "end", endInput.value));
     endWrap.appendChild(endInput);
 
+    const untilWrap = document.createElement("label");
+    untilWrap.className = "absent-date-field absent-until-field";
+    untilWrap.textContent = "Relief hingga";
+    const untilSel = document.createElement("select");
+    untilSel.className = "input-glass";
+    untilSel.disabled = isReliefPlanApproved;
+    untilSel.setAttribute("aria-label", `Masa hadir semula ${name}`);
+    const untilOptions = [
+      { value: "", label: "Sepanjang hari" },
+      { value: "2:30-3:00", label: "Mesyuarat — hadir 2:30" },
+      { value: "3:00-3:30", label: "Hadir 3:00" },
+      { value: "3:30-4:00", label: "Hadir 3:30" },
+      { value: "4:00-4:30", label: "Hadir 4:00" },
+      { value: "4:30-5:00", label: "Hadir 4:30" },
+      { value: "5:00-5:30", label: "Hadir 5:00" }
+    ];
+    untilOptions.forEach((opt) => {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.label;
+      untilSel.appendChild(o);
+    });
+    if (range.untilTime && !untilOptions.some((o) => o.value === range.untilTime)) {
+      const o = document.createElement("option");
+      o.value = range.untilTime;
+      o.textContent = formatUntilTimeLabel(range.untilTime);
+      untilSel.appendChild(o);
+    }
+    untilSel.value = range.untilTime || "";
+    untilSel.addEventListener("change", () => updateAbsentRange(name, "untilTime", untilSel.value));
+    untilWrap.appendChild(untilSel);
+
     row.appendChild(nameBtn);
     row.appendChild(startWrap);
     row.appendChild(endWrap);
+    row.appendChild(untilWrap);
+    if (range.untilTime && activeToday) {
+      const partial = document.createElement("div");
+      partial.className = "absent-range-note";
+      partial.style.color = "#1d4ed8";
+      partial.textContent = `Relief slot sebelum ${formatUntilTimeLabel(range.untilTime)} sahaja`;
+      row.appendChild(partial);
+    }
     if (!activeToday) {
       const note = document.createElement("div");
       note.className = "absent-range-note";
@@ -1466,7 +1565,8 @@ function buildReliefTeacherTable() {
     return;
   }
   const reliefDay = getReliefDay();
-  setText(label, `Cikgu dipilih: ${focusAbsentTeacher}${reliefDay ? ` (${reliefDay})` : ""}`);
+  const untilNote = getAbsentUntilTime(focusAbsentTeacher) ? ` · ${formatUntilTimeLabel(getAbsentUntilTime(focusAbsentTeacher))}` : "";
+  setText(label, `Cikgu dipilih: ${focusAbsentTeacher}${reliefDay ? ` (${reliefDay})` : ""}${untilNote}`);
   const map = guruSchedules[focusAbsentTeacher] || {};
   slotSubjectMap = {};
   const allBusySlots = [];
@@ -1511,6 +1611,16 @@ function buildReliefTeacherTable() {
           hDiv.textContent = "Kelas ditutup — tiada relief";
           td.appendChild(tag); td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
           td.setAttribute("aria-label", `${day} ${time} ${sub} ${cls} kelas tutup`);
+        } else if (!isTeacherAbsentForSlot(focusAbsentTeacher, day, time)) {
+          td.classList.add("slot-returning");
+          const tag = document.createElement("div");
+          tag.className = "return-tag";
+          tag.textContent = "HADIR SEMULA";
+          const sDiv = document.createElement("div"); sDiv.className = "subjek muted"; sDiv.textContent = sub;
+          const cDiv = document.createElement("div"); cDiv.className = "kelas muted"; cDiv.textContent = cls;
+          const hDiv = document.createElement("div"); hDiv.className = "hint";
+          hDiv.textContent = "Tiada relief — guru hadir sendiri";
+          td.appendChild(tag); td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
         } else {
           allBusySlots.push(k);
           slotSubjectMap[k] = sub.trim().toUpperCase();
@@ -1762,6 +1872,7 @@ function renderReliefDateWarning() {
 
 function renderReliefUi() {
   purgeClosedClassReliefAssignments();
+  purgePartialAbsentReliefAssignments();
   renderReliefDateWarning();
   renderReliefTeacherList();
   renderAbsentList();

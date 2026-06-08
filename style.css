@@ -658,7 +658,7 @@ code {
 }
 .absent-summary-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) auto auto;
+  grid-template-columns: minmax(120px, 1fr) auto auto minmax(150px, 1fr);
   gap: 6px;
   align-items: end;
   border: 1px solid var(--color-border);
@@ -745,6 +745,20 @@ code {
   color: #1d4ed8;
   font-size: 0.82rem;
   font-weight: 600;
+}
+.absent-until-field select {
+  min-height: 40px;
+  font-size: 0.82rem;
+}
+.slot-returning {
+  background: #f0fdf4 !important;
+  border-color: #86efac !important;
+}
+.slot-returning .return-tag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #15803d;
+  margin-bottom: 4px;
 }
 
 .ineligible-box {
