@@ -13,7 +13,8 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 PartialAbsent";
+const BUILD_ID = "Build 2026-06-08 PetangSession";
+const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -531,13 +532,17 @@ function getAbsentUntilTime(name) {
   return absentRanges[name]?.untilTime || "";
 }
 
+function formatSlotTime(time) {
+  return time ? `${time} ptg` : time;
+}
+
 function formatUntilTimeLabel(untilTime) {
-  if (!untilTime) return "sepanjang hari";
+  if (!untilTime) return "sepanjang hari (sesi petang)";
   const idx = TIMES.indexOf(untilTime);
-  if (idx < 0) return untilTime;
+  if (idx < 0) return `${untilTime} ptg`;
   const prev = TIMES[idx - 1];
-  if (prev) return `mesyuarat / hadir semula ${prev.split("-")[1]}`;
-  return `hadir semula ${untilTime.split("-")[0]}`;
+  if (prev) return `mesyuarat / hadir semula ${prev.split("-")[1]} ptg`;
+  return `hadir semula ${untilTime.split("-")[0]} ptg`;
 }
 
 function isTeacherAbsentForSlot(name, day, time) {
@@ -1108,7 +1113,7 @@ function buildTimeHeaderRow() {
   const th0 = document.createElement("th");
   th0.textContent = "HARI";
   tr.appendChild(th0);
-  TIMES.forEach((t) => { const th = document.createElement("th"); th.textContent = t; tr.appendChild(th); });
+  TIMES.forEach((t) => { const th = document.createElement("th"); th.textContent = formatSlotTime(t); tr.appendChild(th); });
   return tr;
 }
 
@@ -1507,13 +1512,13 @@ function renderAbsentSummary() {
     untilSel.disabled = isReliefPlanApproved;
     untilSel.setAttribute("aria-label", `Masa hadir semula ${name}`);
     const untilOptions = [
-      { value: "", label: "Sepanjang hari" },
-      { value: "2:30-3:00", label: "Mesyuarat — hadir 2:30" },
-      { value: "3:00-3:30", label: "Hadir 3:00" },
-      { value: "3:30-4:00", label: "Hadir 3:30" },
-      { value: "4:00-4:30", label: "Hadir 4:00" },
-      { value: "4:30-5:00", label: "Hadir 4:30" },
-      { value: "5:00-5:30", label: "Hadir 5:00" }
+      { value: "", label: "Sepanjang sesi petang" },
+      { value: "2:30-3:00", label: "Mesyuarat — hadir 2:30 ptg" },
+      { value: "3:00-3:30", label: "Hadir 3:00 ptg" },
+      { value: "3:30-4:00", label: "Hadir 3:30 ptg" },
+      { value: "4:00-4:30", label: "Hadir 4:00 ptg" },
+      { value: "4:30-5:00", label: "Hadir 4:30 ptg" },
+      { value: "5:00-5:30", label: "Hadir 5:00 ptg" }
     ];
     untilOptions.forEach((opt) => {
       const o = document.createElement("option");
@@ -1539,7 +1544,7 @@ function renderAbsentSummary() {
       const partial = document.createElement("div");
       partial.className = "absent-range-note";
       partial.style.color = "#1d4ed8";
-      partial.textContent = `Relief slot sebelum ${formatUntilTimeLabel(range.untilTime)} sahaja`;
+      partial.textContent = `Relief slot petang sebelum ${formatUntilTimeLabel(range.untilTime)} sahaja`;
       row.appendChild(partial);
     }
     if (!activeToday) {
