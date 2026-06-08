@@ -80,11 +80,15 @@
           <button id="exportReliefPdfBtn" class="btn secondary">PDF</button>
           <button id="undoReliefBtn" class="btn ghost" aria-label="Undo">Undo</button>
           <button id="redoReliefBtn" class="btn ghost" aria-label="Redo">Redo</button>
+          <div class="toolbar-divider" aria-hidden="true"></div>
+          <button id="publishReliefCloudBtn" class="btn secondary" type="button">Simpan ke Cloud</button>
+          <button id="pullReliefCloudBtn" class="btn secondary" type="button">Muat dari Cloud</button>
         </div>
         <div class="status-row">
           <p id="reliefPlanStatus" class="status-pill">Status: Draft</p>
           <div id="clashWarning" class="clash-pill" role="alert" aria-live="polite"></div>
         </div>
+        <p id="reliefSyncStatus" class="hint-sm" aria-live="polite"></p>
       </div>
 
       <div class="relief-layout">
@@ -144,6 +148,7 @@
                 <label for="maxReliefPerDay" class="field-label">Max / Hari</label>
                 <input id="maxReliefPerDay" type="number" min="1" max="10" value="2" class="input-glass input-narrow" />
                 <label class="check-label"><input id="includeDutyRule" type="checkbox" checked /> Kira jadual bertugas</label>
+                <label class="check-label"><input id="strictBreakRule" type="checkbox" checked /> Elak assign hingga hilang rehat</label>
               </div>
               <div class="toolbar flex-wrap">
                 <select id="blockTimeSelect" class="input-glass" aria-label="Pilih masa untuk block"></select>
