@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608kumpb" />
+  <link rel="stylesheet" href="style.css?v=20260608edit" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -233,6 +233,7 @@
             Upload Gambar
             <input id="uploadBertugasTab" type="file" accept="application/pdf,image/jpeg,image/png" multiple class="file-input-hidden" aria-label="Upload gambar jadual bertugas" />
           </label>
+          <button id="bertugasEditToggle" class="btn secondary" type="button" aria-pressed="false">Edit Nama</button>
           <button id="aiParseBertugasBtn" class="btn" type="button" title="Baca gambar dengan AI Groq">AI Baca &amp; Susun</button>
           <span id="aiParseStatus" class="ai-status" aria-live="polite"></span>
           <label for="bertugasWeekInput" class="field-label">Minggu</label>
@@ -240,7 +241,12 @@
           <button id="bertugasWeekBtn" class="btn secondary">Set Minggu</button>
         </div>
         <div id="bertugasDigitalWrap" class="bertugas-view">
+          <p class="hint-sm">Klik <strong>Edit Nama</strong> untuk betulkan slot yang AI salah baca.</p>
           <div class="table-wrap glass-inset"><table id="bertugasTable" class="jadual" aria-label="Jadual bertugas"></table></div>
+          <div id="bertugasSaveBar" class="toolbar toolbar-end bertugas-view-hidden">
+            <button id="bertugasSaveInlineBtn" class="btn" type="button">Simpan Nama</button>
+            <button id="bertugasSaveCloudInlineBtn" class="btn secondary" type="button">Simpan ke Cloud</button>
+          </div>
         </div>
         <div id="bertugasRefWrap" class="bertugas-view bertugas-view-hidden">
           <div id="bertugasRefViewer" class="ref-viewer glass-inset" aria-live="polite"></div>
@@ -354,6 +360,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608kumpb"></script>
+  <script src="app.js?v=20260608edit"></script>
 </body>
 </html>

@@ -768,6 +768,29 @@ code {
 .ai-review-row.warn { background: rgba(251, 191, 36, 0.15); }
 .ai-review-slot { font-weight: 600; color: var(--color-muted-foreground); }
 .ai-review-name { font-weight: 600; }
+
+.bertugas-editing .bertugas-cell-input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: 600 0.82rem/1.2 var(--font-sans);
+  background: #fff;
+  text-align: center;
+}
+.bertugas-editing .bertugas-cell-input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.4);
+  border-color: var(--color-primary);
+}
+.bertugas-editing td:has(.bertugas-cell-input) {
+  padding: 3px;
+  background: rgba(255, 251, 235, 0.65);
+}
+#bertugasEditToggle.active {
+  background: var(--color-primary);
+  color: #fff;
+}
 .bertugas-view-hidden { display: none !important; }
 .bertugas-ref-empty-hidden { display: none; }
 
