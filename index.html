@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608single" />
+  <link rel="stylesheet" href="style.css?v=20260608reliefui" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -69,20 +69,24 @@
       <!-- Langkah 1: Plan bar -->
       <div class="card glass-card relief-plan-bar">
         <div class="section-label">Langkah 1 — Pelan Harian</div>
-        <div class="toolbar plan-toolbar">
-          <label for="reliefDate" class="field-label">Tarikh</label>
-          <input id="reliefDate" type="date" class="input-glass" />
-          <button id="loadReliefPlanBtn" class="btn secondary">Load</button>
-          <button id="saveReliefPlanBtn" class="btn">Save</button>
-          <div class="toolbar-divider" aria-hidden="true"></div>
-          <button id="approveReliefPlanBtn" class="btn success">Approve + Lock</button>
-          <button id="unlockReliefPlanBtn" class="btn secondary">Unlock</button>
-          <button id="exportReliefPdfBtn" class="btn secondary">PDF</button>
-          <button id="undoReliefBtn" class="btn ghost" aria-label="Undo">Undo</button>
-          <button id="redoReliefBtn" class="btn ghost" aria-label="Redo">Redo</button>
-          <div class="toolbar-divider" aria-hidden="true"></div>
-          <button id="publishReliefCloudBtn" class="btn secondary" type="button">Simpan ke Cloud</button>
-          <button id="pullReliefCloudBtn" class="btn secondary" type="button">Muat dari Cloud</button>
+        <div class="plan-toolbar">
+          <div class="plan-group">
+            <label for="reliefDate" class="field-label">Tarikh</label>
+            <input id="reliefDate" type="date" class="input-glass plan-date-input" />
+            <button id="loadReliefPlanBtn" class="btn secondary">Load</button>
+            <button id="saveReliefPlanBtn" class="btn">Save</button>
+          </div>
+          <div class="plan-group">
+            <button id="approveReliefPlanBtn" class="btn success">Approve + Lock</button>
+            <button id="unlockReliefPlanBtn" class="btn secondary">Unlock</button>
+            <button id="exportReliefPdfBtn" class="btn secondary">PDF</button>
+            <button id="undoReliefBtn" class="btn ghost" aria-label="Undo">Undo</button>
+            <button id="redoReliefBtn" class="btn ghost" aria-label="Redo">Redo</button>
+          </div>
+          <div class="plan-group">
+            <button id="publishReliefCloudBtn" class="btn secondary" type="button">Simpan Cloud</button>
+            <button id="pullReliefCloudBtn" class="btn secondary" type="button">Muat Cloud</button>
+          </div>
         </div>
         <div class="status-row">
           <p id="reliefPlanStatus" class="status-pill">Status: Draft</p>
@@ -177,8 +181,9 @@
               <label for="availableSlotSelect" class="field-label">Slot</label>
               <select id="availableSlotSelect" class="input-glass" aria-label="Pilih slot masa"></select>
             </div>
-            <div id="availableTeachers" class="chip-row"></div>
-            <div class="table-wrap glass-inset"><table id="reliefTeacherTable" class="jadual" aria-label="Jadual guru tidak hadir"></table></div>
+            <div id="availableTeachers" class="chip-row chip-row-contained"></div>
+            <p class="hint-sm table-scroll-hint">Swipe jadual kiri/kanan untuk lihat semua masa.</p>
+            <div class="table-wrap table-wrap-contained glass-inset"><table id="reliefTeacherTable" class="jadual jadual-relief" aria-label="Jadual guru tidak hadir"></table></div>
           </div>
 
           <div class="relief-output-grid">

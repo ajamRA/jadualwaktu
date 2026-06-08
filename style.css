@@ -32,7 +32,11 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100%;
+}
 
 body {
   margin: 0;
@@ -41,6 +45,8 @@ body {
   line-height: 1.5;
   color: var(--color-foreground);
   min-height: 100dvh;
+  overflow-x: hidden;
+  max-width: 100%;
   background:
     radial-gradient(ellipse 80% 60% at 10% 0%, rgba(37, 99, 235, 0.35), transparent 55%),
     radial-gradient(ellipse 70% 50% at 90% 10%, rgba(5, 150, 105, 0.2), transparent 50%),
@@ -80,8 +86,10 @@ body {
   position: relative;
   z-index: 1;
   max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
   padding: 16px;
+  overflow-x: hidden;
 }
 
 /* ─── Glass surfaces ─── */
@@ -197,7 +205,11 @@ body {
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
 }
 .tab-btn:focus-visible { outline: 3px solid var(--color-ring); outline-offset: 2px; }
-.tab-panel { display: none; }
+.tab-panel {
+  display: none;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .tab-panel.active { display: block; }
 
 .panel-head { margin-bottom: 12px; }
@@ -264,14 +276,30 @@ body {
   margin-bottom: 10px;
 }
 
-.relief-plan-bar { position: sticky; top: 8px; z-index: 30; }
-.plan-toolbar { gap: 6px; }
-.toolbar-divider {
-  width: 1px;
-  height: 28px;
-  background: var(--color-border);
-  margin: 0 4px;
+.relief-plan-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 30;
+  max-width: 100%;
+  overflow: hidden;
 }
+.plan-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
+}
+.plan-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--color-border);
+}
+.plan-date-input { width: min(100%, 168px); }
 .status-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .status-pill, .clash-pill {
   margin: 0;
@@ -296,15 +324,26 @@ body {
 
 .relief-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) 1fr;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+  max-width: 100%;
 }
-.relief-sidebar, .relief-main { display: grid; gap: 0; }
+.relief-sidebar,
+.relief-main {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.relief-sidebar .relief-grid {
+  grid-template-columns: 1fr;
+}
 .relief-output-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  max-width: 100%;
 }
 .relief-output-grid .card { margin-bottom: 0; }
 .relief-output-grid + .card { margin-top: 14px; }
@@ -447,8 +486,30 @@ code {
 }
 
 /* ─── Tables ─── */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+.table-wrap-contained {
+  width: 100%;
+  overscroll-behavior-x: contain;
+}
+.table-scroll-hint {
+  display: none;
+  margin: 0 0 6px;
+  color: var(--color-muted-text);
+  font-size: 0.78rem;
+}
 .jadual { border-collapse: collapse; width: 100%; min-width: 1080px; }
+.jadual-relief { min-width: 640px; }
+.chip-row-contained {
+  max-width: 100%;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+  overscroll-behavior-x: contain;
+}
 .jadual th, .jadual td { border: 1px solid var(--color-border); text-align: center; }
 .jadual thead th {
   background: var(--color-foreground);
@@ -642,7 +703,12 @@ code {
   padding: 10px;
   background: rgba(255, 255, 255, 0.45);
 }
-.ineligible-line { font-size: 0.82rem; color: var(--color-muted-text); margin-top: 4px; }
+.ineligible-line {
+  font-size: 0.82rem;
+  color: var(--color-muted-text);
+  margin-top: 4px;
+  word-break: break-word;
+}
 
 .ghost-btn {
   border: 0; background: transparent;
@@ -869,6 +935,11 @@ code {
 @media (max-width: 1100px) {
   .relief-layout { grid-template-columns: 1fr; }
   .relief-output-grid { grid-template-columns: 1fr; }
+  .relief-sidebar .relief-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 900px) {
+  .relief-sidebar .relief-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {
@@ -876,14 +947,51 @@ code {
   .title-wrap { justify-items: center; }
   .teacher-name { width: 100%; justify-content: center; }
   .admin-grid { grid-template-columns: 1fr; }
-  .relief-grid { grid-template-columns: 1fr; }
   .absent-summary-row { grid-template-columns: 1fr; }
   .workflow-steps { justify-content: center; }
   .relief-hero { justify-content: center; text-align: center; }
 }
 
 @media (max-width: 760px) {
-  .plan-toolbar .toolbar-divider { display: none; }
+  .page { padding: 12px; }
+  .relief-plan-bar { position: static; }
+  .plan-group { padding: 8px; }
+  .plan-group .btn {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    min-height: 40px;
+  }
+  .plan-group .plan-date-input { flex: 1 1 100%; }
+  .table-scroll-hint { display: block; }
+  .chip-row-contained { flex-wrap: wrap; overflow-x: visible; }
+  .jadual-relief {
+    min-width: 0;
+    width: 100%;
+    table-layout: fixed;
+  }
+  .jadual-relief .slot-cell {
+    height: auto;
+    min-height: 56px;
+    font-size: 0.68rem;
+    padding: 3px 2px;
+  }
+  .jadual-relief .subjek { font-size: 0.72rem; }
+  .jadual-relief .kelas { font-size: 0.66rem; }
+  .jadual-relief thead th {
+    font-size: 0.62rem;
+    padding: 6px 2px;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .jadual-relief .day-col {
+    min-width: 0;
+    width: 52px;
+    font-size: 0.68rem;
+    padding: 6px 4px;
+  }
+  .workflow-steps { display: none; }
   .bertugas-layout { min-width: 100%; width: 100%; table-layout: fixed; }
   .bertugas-layout th, .bertugas-layout td {
     font-size: 0.72rem; padding: 4px 3px;
