@@ -734,6 +734,70 @@ code {
 .bertugas-layout .bold-center { font-weight: 600; text-align: center; }
 .bertugas-layout .names-row td { font-style: italic; }
 
+.bertugas-toolbar { flex-wrap: wrap; gap: 10px; align-items: center; }
+.bertugas-view-hidden { display: none !important; }
+.bertugas-ref-empty-hidden { display: none; }
+
+.view-segment {
+  display: inline-flex;
+  border-radius: 10px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--color-border);
+  gap: 2px;
+}
+.segment-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  font: 600 0.85rem/1 var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.segment-btn:hover { background: rgba(255, 255, 255, 0.7); color: var(--color-foreground); }
+.segment-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+.segment-btn:focus-visible { outline: 3px solid var(--color-ring); outline-offset: 2px; }
+
+.ref-viewer {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 75vh;
+  overflow: auto;
+}
+.ref-image-block { margin: 0; }
+.ref-image-caption {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+  margin-bottom: 8px;
+}
+.ref-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+}
+.ref-pdf {
+  display: block;
+  width: 100%;
+  min-height: 480px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
 /* ─── Reduced motion (UI UX Pro Max checklist) ─── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

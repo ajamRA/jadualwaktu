@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 UUPM";
+const BUILD_ID = "Build 2026-06-08 BertugasImg";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");
@@ -108,7 +108,8 @@ const KEYS = {
   reliefPlans: "jadual-v1-relief-plans",
   absentReasons: "jadual-v1-absent-reasons",
   absentRanges: "jadual-v1-absent-ranges",
-  bertugasWeek: "jadual-v1-bertugas-week"
+  bertugasWeek: "jadual-v1-bertugas-week",
+  bertugasView: "jadual-v2-bertugas-view"
 };
 
 // ─── Utility: Safe text (XSS protection) ────────────────────
@@ -1755,18 +1756,128 @@ function toDataUrl(file) {
   });
 }
 
+function compressDataUrl(dataUrl, maxWidth = 1600, quality = 0.82) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+      if (scale === 1 && dataUrl.length < 900000) { resolve(dataUrl); return; }
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      try { resolve(canvas.toDataURL("image/jpeg", quality)); }
+      catch { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function fileToStoredRef(file) {
+  let dataUrl = await toDataUrl(file);
+  if (file.type.startsWith("image/")) dataUrl = await compressDataUrl(dataUrl);
+  return { name: file.name, type: file.type, dataUrl, uploadedAt: Date.now() };
+}
+
+function safeSetLocalStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadBertugasFiles() {
+  try { return JSON.parse(localStorage.getItem(KEYS.bertugasFiles) || "[]"); }
+  catch { return []; }
+}
+
+function getBertugasViewMode() {
+  return localStorage.getItem(KEYS.bertugasView) === "ref" ? "ref" : "digital";
+}
+
+function setBertugasViewMode(mode) {
+  const isRef = mode === "ref";
+  localStorage.setItem(KEYS.bertugasView, isRef ? "ref" : "digital");
+  const digitalWrap = document.getElementById("bertugasDigitalWrap");
+  const refWrap = document.getElementById("bertugasRefWrap");
+  const digitalBtn = document.getElementById("bertugasViewDigital");
+  const refBtn = document.getElementById("bertugasViewRef");
+  if (digitalWrap) digitalWrap.classList.toggle("bertugas-view-hidden", isRef);
+  if (refWrap) refWrap.classList.toggle("bertugas-view-hidden", !isRef);
+  if (digitalBtn) {
+    digitalBtn.classList.toggle("active", !isRef);
+    digitalBtn.setAttribute("aria-pressed", String(!isRef));
+  }
+  if (refBtn) {
+    refBtn.classList.toggle("active", isRef);
+    refBtn.setAttribute("aria-pressed", String(isRef));
+  }
+  if (isRef) renderBertugasReference();
+}
+
+function renderBertugasReference() {
+  const viewer = document.getElementById("bertugasRefViewer");
+  const empty = document.getElementById("bertugasRefEmpty");
+  if (!viewer) return;
+  const list = loadBertugasFiles();
+  viewer.replaceChildren();
+  if (!list.length) {
+    if (empty) empty.classList.remove("bertugas-ref-empty-hidden");
+    return;
+  }
+  if (empty) empty.classList.add("bertugas-ref-empty-hidden");
+  list.forEach((item, idx) => {
+    const block = document.createElement("figure");
+    block.className = "ref-image-block";
+    const cap = document.createElement("figcaption");
+    cap.className = "ref-image-caption";
+    cap.textContent = item.name || `Fail ${idx + 1}`;
+    block.appendChild(cap);
+    if ((item.type || "").includes("pdf")) {
+      const embed = document.createElement("embed");
+      embed.className = "ref-pdf";
+      embed.src = item.dataUrl;
+      embed.type = "application/pdf";
+      embed.setAttribute("aria-label", item.name || "PDF jadual bertugas");
+      block.appendChild(embed);
+    } else {
+      const img = document.createElement("img");
+      img.className = "ref-image";
+      img.src = item.dataUrl;
+      img.alt = item.name || "Jadual bertugas rujukan";
+      img.loading = idx === 0 ? "eager" : "lazy";
+      block.appendChild(img);
+    }
+    viewer.appendChild(block);
+  });
+}
+
 function renderUploadInfo() {
   const jadualInfo = document.getElementById("jadualUploadInfo");
   const one = JSON.parse(localStorage.getItem(KEYS.jadualFile) || "null");
   setText(jadualInfo, one ? `Rujukan terakhir: ${one.name}` : "Belum ada fail rujukan jadual waktu.");
-  const list = JSON.parse(localStorage.getItem(KEYS.bertugasFiles) || "[]");
-  setText(document.getElementById("bertugasUploadInfo"), list.length ? `${list.length} fail rujukan bertugas disimpan.` : "Belum ada fail rujukan bertugas.");
+  const list = loadBertugasFiles();
+  const names = list.map((f) => f.name).filter(Boolean).join(", ");
+  setText(
+    document.getElementById("bertugasUploadInfo"),
+    list.length ? `${list.length} fail rujukan disimpan${names ? `: ${names}` : ""}. Lihat di tab Jadual Bertugas → Gambar Rujukan.` : "Belum ada fail rujukan bertugas."
+  );
 }
 
 async function handleUploadJadual(e) {
   const file = e.target.files[0];
   if (!file) return;
-  localStorage.setItem(KEYS.jadualFile, JSON.stringify({ name: file.name, type: file.type, dataUrl: await toDataUrl(file) }));
+  const ref = await fileToStoredRef(file);
+  const payload = JSON.stringify({ name: ref.name, type: ref.type, dataUrl: ref.dataUrl });
+  if (!safeSetLocalStorage(KEYS.jadualFile, payload)) {
+    showToast("Gagal simpan — fail terlalu besar. Cuba compress atau guna fail lebih kecil.");
+    return;
+  }
   renderUploadInfo();
   showToast("Fail rujukan jadual diupload.");
 }
@@ -1775,10 +1886,19 @@ async function handleUploadBertugas(e) {
   const files = Array.from(e.target.files || []);
   if (!files.length) return;
   const out = [];
-  for (const f of files) out.push({ name: f.name, type: f.type, dataUrl: await toDataUrl(f) });
-  localStorage.setItem(KEYS.bertugasFiles, JSON.stringify(out));
+  for (const f of files) out.push(await fileToStoredRef(f));
+  const payload = JSON.stringify(out);
+  if (!safeSetLocalStorage(KEYS.bertugasFiles, payload)) {
+    showToast("Gagal simpan — gambar terlalu besar untuk storan browser. Cuba resize/compress JPEG dahulu.");
+    e.target.value = "";
+    return;
+  }
   renderUploadInfo();
-  showToast("Fail rujukan bertugas diupload.");
+  renderBertugasReference();
+  setBertugasViewMode("ref");
+  activateTab("bertugas");
+  showToast(`${files.length} fail rujukan bertugas diupload. Paparan ditukar ke Gambar Rujukan.`);
+  e.target.value = "";
 }
 
 async function handleUploadGuruJson(e) {
@@ -1970,6 +2090,10 @@ function init() {
     buildBertugasTable();
     showToast("Minggu bertugas dikemaskini.");
   });
+  const bertugasViewDigital = document.getElementById("bertugasViewDigital");
+  const bertugasViewRef = document.getElementById("bertugasViewRef");
+  if (bertugasViewDigital) bertugasViewDigital.addEventListener("click", () => setBertugasViewMode("digital"));
+  if (bertugasViewRef) bertugasViewRef.addEventListener("click", () => setBertugasViewMode("ref"));
 
   // Admin: reset score
   document.getElementById("resetScoreBtn").addEventListener("click", () => {
@@ -2012,6 +2136,7 @@ function init() {
   buildBertugasTable();
   buildBertugasEditor();
   renderUploadInfo();
+  setBertugasViewMode(getBertugasViewMode());
 }
 
 // ─── Bootstrap: fetch guru-schedules.json then init ──────────
