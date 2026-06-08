@@ -1,8 +1,68 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-08T10:21:23.336Z",
+  "updatedAt": "2026-06-08T10:52:58.516Z",
   "reliefPlans": {
-    "2026-06-09": {}
+    "2026-06-09": {},
+    "2026-06-08": {
+      "assignments": {},
+      "absentTeachers": [
+        "AMIR",
+        "HAYATI",
+        "ISAH",
+        "AIN",
+        "NAZMI",
+        "SARINAH",
+        "ASYIQIN",
+        "ABDULLAH",
+        "RAFIDAH"
+      ],
+      "absentRanges": {
+        "AMIR": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "HAYATI": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "ISAH": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "AIN": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "NAZMI": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "SARINAH": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "ASYIQIN": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "ABDULLAH": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        },
+        "RAFIDAH": {
+          "start": "2026-06-08",
+          "end": "2026-06-08"
+        }
+      },
+      "approved": false,
+      "rules": {
+        "maxPerDay": 2,
+        "blocklist": [],
+        "includeDutyRule": true,
+        "strictBreakRule": true
+      },
+      "closedClasses": []
+    }
   },
   "reliefScore": {}
 }
