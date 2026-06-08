@@ -1,6 +1,8 @@
 {
   "version": 1,
-  "updatedAt": null,
-  "reliefPlans": {},
+  "updatedAt": "2026-06-08T10:21:23.336Z",
+  "reliefPlans": {
+    "2026-06-09": {}
+  },
   "reliefScore": {}
 }
