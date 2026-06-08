@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-08T10:35:06.517Z",
+  "updatedAt": "2026-06-08T10:35:24.074Z",
   "week": "2026-06-08",
   "meta": {
     "kumpulan": "B",
@@ -38,7 +38,8 @@
     "KHAMIS|PONDOK PENGAWAL 2": "FATIMAH",
     "JUMAAT|PONDOK PENGAWAL 2": "FARAH",
     "ALL|BUKU LAPORAN BERTUGAS": "MURSYIDA",
-    "ALL|RMT/KANTIN/SUSU": "HALIYZA"
+    "ALL|RMT/KANTIN/SUSU": "HALIYZA",
+    "ALL|LAPORAN BERTUGAS": "ASIAH"
   },
   "referenceImages": [
     {
