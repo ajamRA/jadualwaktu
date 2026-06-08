@@ -16,7 +16,7 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || "{}");
-    const { bertugasMap, week, referenceImages = [] } = body;
+    const { bertugasMap, week, meta = null, referenceImages = [] } = body;
     if (!bertugasMap || typeof bertugasMap !== "object") {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "bertugasMap diperlukan" }) };
     }
@@ -29,6 +29,7 @@ exports.handler = async (event) => {
       version: 1,
       updatedAt: new Date().toISOString(),
       week: week || null,
+      meta: meta || { kumpulan: "B" },
       bertugasMap,
       referenceImages: safeImages
     };

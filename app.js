@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 AIReview";
+const BUILD_ID = "Build 2026-06-08 KumpB";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -45,6 +45,30 @@ const BERTUGAS_FOOTER_ROWS = [
   "LAPORAN BERTUGAS&NILAI MURNI",
   "RMT/KANTIN"
 ];
+
+const BERTUGAS_B_ROWS = [
+  "WAKTU DATANG",
+  "KAWALAN DI DEWAN TERBUKA",
+  "KANTIN (3.00-3.30)",
+  "KANTIN (3.30-4.00)",
+  "KANTIN (4.00-4.30)",
+  "PONDOK PENGAWAL 1",
+  "PONDOK PENGAWAL 2"
+];
+const BERTUGAS_B_FOOTER = [
+  "BUKU LAPORAN BERTUGAS",
+  "LAPORAN BERTUGAS",
+  "RMT/KANTIN/SUSU"
+];
+const BERTUGAS_B_DUTY_MAP = {
+  "WAKTU DATANG": ["1:00-1:30", "1:30-2:00"],
+  "KAWALAN DI DEWAN TERBUKA": ["1:00-1:30", "1:30-2:00"],
+  "KANTIN (3.00-3.30)": ["3:00-3:30"],
+  "KANTIN (3.30-4.00)": ["3:30-4:00"],
+  "KANTIN (4.00-4.30)": ["4:00-4:30"],
+  "PONDOK PENGAWAL 1": ["5:30-6:00", "6:00-6:30"],
+  "PONDOK PENGAWAL 2": ["5:30-6:00", "6:00-6:30"]
+};
 
 const DUTY_TIME_MAP = {
   "PAGAR WAKTU DATANG (MURID)": ["1:00-1:30", "1:30-2:00"],
@@ -115,7 +139,8 @@ const KEYS = {
   bertugasView: "jadual-v2-bertugas-view",
   groqApiKey: "jadual-v2-groq-api-key",
   autoParseBertugas: "jadual-v2-auto-parse-bertugas",
-  bertugasCloudAt: "jadual-v2-bertugas-cloud-at"
+  bertugasCloudAt: "jadual-v2-bertugas-cloud-at",
+  bertugasMeta: "jadual-v2-bertugas-meta"
 };
 
 // ─── Utility: Safe text (XSS protection) ────────────────────
@@ -183,6 +208,7 @@ let redoStack = [];
 let absentReasons = loadAbsentReasons();
 let absentRanges = loadAbsentRanges();
 let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
+let bertugasMeta = loadBertugasMeta();
 let closedClasses = new Set(); // Format: "KELAS_NAME" — kelas yang ditutup hari ini
 let autosaveTimer = null;
 let pendingAiParse = null;
@@ -205,7 +231,16 @@ const BERTUGAS_ROW_ALIASES = {
   "BUKU LAPORAN BERTUGAS": "BUKU LAPORAN BERTUGAS",
   "LAPORAN BERTUGAS&NILAI MURNI": "LAPORAN BERTUGAS&NILAI MURNI",
   "LAPORAN BERTUGAS": "LAPORAN BERTUGAS&NILAI MURNI",
-  "RMT/KANTIN": "RMT/KANTIN"
+  "RMT/KANTIN": "RMT/KANTIN",
+  "WAKTU DATANG": "WAKTU DATANG",
+  "KAWALAN DI PINTU PAGAR B": "WAKTU DATANG",
+  "KAWALAN DI DEWAN TERBUKA": "KAWALAN DI DEWAN TERBUKA",
+  "KANTIN (3.00-3.30)": "KANTIN (3.00-3.30)",
+  "KANTIN (3.30-4.00)": "KANTIN (3.30-4.00)",
+  "KANTIN (4.00-4.30)": "KANTIN (4.00-4.30)",
+  "PONDOK PENGAWAL 1": "PONDOK PENGAWAL 1",
+  "PONDOK PENGAWAL 2": "PONDOK PENGAWAL 2",
+  "RMT/KANTIN/SUSU": "RMT/KANTIN/SUSU"
 };
 
 // ─── Load/Save Functions ─────────────────────────────────────
@@ -216,8 +251,24 @@ function loadScheduleMap() {
 }
 function loadBertugasMap() {
   const raw = localStorage.getItem(KEYS.bertugasData);
-  if (!raw) return { ...DEFAULT_BERTUGAS };
-  try { return JSON.parse(raw); } catch { return { ...DEFAULT_BERTUGAS }; }
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+function loadBertugasMeta() {
+  const raw = localStorage.getItem(KEYS.bertugasMeta);
+  if (!raw) return { kumpulan: "B", weekText: "" };
+  try {
+    const v = JSON.parse(raw);
+    return { kumpulan: (v.kumpulan || "B").toUpperCase(), weekText: v.weekText || "" };
+  } catch { return { kumpulan: "B", weekText: "" }; }
+}
+function saveBertugasMeta() { localStorage.setItem(KEYS.bertugasMeta, JSON.stringify(bertugasMeta)); }
+function getBertugasConfig(kumpulan) {
+  const k = (kumpulan || bertugasMeta.kumpulan || "B").toUpperCase();
+  if (k === "B") {
+    return { kumpulan: "B", rows: BERTUGAS_B_ROWS, footer: BERTUGAS_B_FOOTER, dutyMap: BERTUGAS_B_DUTY_MAP };
+  }
+  return { kumpulan: "D", rows: BERTUGAS_ROWS, footer: BERTUGAS_FOOTER_ROWS, dutyMap: DUTY_TIME_MAP };
 }
 function loadGuruSchedules() {
   const raw = localStorage.getItem(KEYS.guruSchedules);
@@ -491,10 +542,11 @@ function isBlockedByRule(teacher, day, time) {
 
 function isTeacherOnDutyAtSlot(teacher, day, time) {
   if (reliefRules.includeDutyRule === false) return false;
-  for (const row of BERTUGAS_ROWS) {
+  const cfg = getBertugasConfig();
+  for (const row of cfg.rows) {
     const cell = (bertugasMap[`${day}|${row}`] || "").toUpperCase();
     if (!cell.split("/").map((x) => x.trim()).includes(teacher.toUpperCase())) continue;
-    if ((DUTY_TIME_MAP[row] || []).includes(time)) return true;
+    if ((cfg.dutyMap[row] || []).includes(time)) return true;
   }
   return false;
 }
@@ -1642,13 +1694,11 @@ function exportReliefPlanPdf() {
 
 
 // ─── Bertugas Table (Dynamic Week) ──────────────────────────
-function buildBertugasTable() {
-  const table = document.getElementById("bertugasTable");
+function createBertugasTableBuilder(table) {
   table.innerHTML = "";
   table.classList.add("bertugas-layout");
-
-  const week = getWeekDates(bertugasWeekDate);
-
+  const bGet = (day, row) => bertugasMap[`${day}|${row}`] || "-";
+  const dayHeader = [{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: d, className: "small-head" }))];
   const addRow = (cells, isHeader = false, rowClass = "") => {
     const tr = document.createElement("tr");
     if (rowClass) tr.className = rowClass;
@@ -1661,41 +1711,84 @@ function buildBertugasTable() {
     });
     table.appendChild(tr);
   };
+  return { addRow, dayHeader, bGet };
+}
 
-  const dayHeader = [{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: d, className: "small-head" }))];
+function buildBertugasTableD() {
+  const table = document.getElementById("bertugasTable");
+  const { addRow, dayHeader, bGet } = createBertugasTableBuilder(table);
+  const week = getWeekDates(bertugasWeekDate);
+  const weekLabel = bertugasMeta.weekText || `TARIKH BERTUGAS: ${week.start} HINGGA ${week.end} (ISNIN HINGGA JUMAAT)`;
 
   addRow([{ text: "JADUAL BERTUGAS", colspan: 6, className: "section-title" }], true);
   addRow([{ text: "KUMPULAN D", colspan: 6, className: "section-title" }], true);
-  addRow([{ text: `TARIKH BERTUGAS: ${week.start} HINGGA ${week.end} (ISNIN HINGGA JUMAAT)`, colspan: 6, className: "meta-row" }], true);
-  addRow([{ text: "* KETUA BERTUGAS MINGGUAN : FAEZA BINTI HAMZAH", colspan: 6, className: "meta-row" }], true);
-
+  addRow([{ text: weekLabel, colspan: 6, className: "meta-row" }], true);
   addRow([{ text: "* PAGAR WAKTU DATANG (MURID)", colspan: 6, className: "section-head" }], true);
   addRow([{ text: "PAGAR (12.20 TENGAH HARI)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|PAGAR WAKTU DATANG (MURID)`] || "-" }))], false, "names-row");
-
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "PAGAR WAKTU DATANG (MURID)") }))], false, "names-row");
   addRow([{ text: "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)`] || "-" }))], false, "names-row");
-  addRow([{ text: "*GURU BERTUGAS YANG TIDAK BERTUGAS DI PAGAR AKAN BERTUGAS DI DEWAN", colspan: 6, className: "meta-row" }], true);
-
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)") }))], false, "names-row");
   addRow([{ text: "WAKTU REHAT", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([{ text: "3.00-3.30", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|WAKTU REHAT (3.00-3.30)`] || "-" }))]);
-  addRow([{ text: "3.30-4.00", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|WAKTU REHAT (3.30-4.00)`] || "-" }))]);
-
+  addRow([{ text: "3.00-3.30", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "WAKTU REHAT (3.00-3.30)") }))]);
+  addRow([{ text: "3.30-4.00", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "WAKTU REHAT (3.30-4.00)") }))]);
   addRow([{ text: "WAKTU BALIK (6.30 PETANG)", colspan: 6, className: "section-head" }], true);
   addRow([{ text: "*KAWALAN PERGERAKAN MURID KELUAR PAGAR", colspan: 3, className: "section-subhead" }, { text: "*LALUAN", colspan: 3, className: "section-subhead" }], true);
   addRow([{ text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" }, { text: "SEMUA GURU BERTUGAS", colspan: 3, className: "bold-center" }], true);
-
   addRow([{ text: "KAWALAN MURID (sehingga WAKTU BALIK 6.00 PETANG)", colspan: 6, className: "section-head" }], true);
   addRow(dayHeader, true);
-  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bertugasMap[`${d}|KAWALAN MURID (6.00 PETANG)`] || "-" }))], false, "names-row");
-
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "KAWALAN MURID (6.00 PETANG)") }))], false, "names-row");
   addRow([{ text: "TUGAS KHAS", colspan: 6, className: "section-head" }], true);
   BERTUGAS_FOOTER_ROWS.forEach((rowLabel) => {
     addRow([{ text: rowLabel, colspan: 3, className: "small-head" }, { text: bertugasMap[`ALL|${rowLabel}`] || "-", colspan: 3, className: "bold-center" }]);
   });
+}
+
+function buildBertugasTableB() {
+  const table = document.getElementById("bertugasTable");
+  const { addRow, dayHeader, bGet } = createBertugasTableBuilder(table);
+  const week = getWeekDates(bertugasWeekDate);
+  const weekLabel = bertugasMeta.weekText || `TARIKH BERTUGAS: ${week.start} HINGGA ${week.end}`;
+
+  addRow([{ text: "JADUAL BERTUGAS", colspan: 6, className: "section-title" }], true);
+  addRow([{ text: "KUMPULAN B", colspan: 6, className: "section-title" }], true);
+  addRow([{ text: weekLabel, colspan: 6, className: "meta-row" }], true);
+
+  addRow([{ text: "WAKTU DATANG", colspan: 6, className: "section-head" }], true);
+  addRow([{ text: "KAWALAN DI PINTU PAGAR B", colspan: 6, className: "section-subhead" }], true);
+  addRow(dayHeader, true);
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "WAKTU DATANG") }))], false, "names-row");
+
+  addRow([{ text: "KAWALAN DI DEWAN TERBUKA", colspan: 6, className: "section-head" }], true);
+  addRow(dayHeader, true);
+  addRow([{ text: "", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "KAWALAN DI DEWAN TERBUKA") }))], false, "names-row");
+
+  addRow([{ text: "KAWALAN DI KANTIN", colspan: 6, className: "section-head" }], true);
+  addRow(dayHeader, true);
+  addRow([{ text: "3.00-3.30 PTG", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "KANTIN (3.00-3.30)") }))]);
+  addRow([{ text: "3.30-4.00 PTG", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "KANTIN (3.30-4.00)") }))]);
+  addRow([{ text: "4.00-4.30 (JUMAAT)", className: "small-head" }, ...DAYS.map((d) => ({ text: d === "JUMAAT" ? bGet(d, "KANTIN (4.00-4.30)") : "-" }))]);
+
+  addRow([{ text: "KAWALAN WAKTU BALIK", colspan: 6, className: "section-head" }], true);
+  addRow([{ text: "KAWALAN PERGERAKAN KELUAR PAGAR", colspan: 3, className: "section-subhead" }, { text: "LALUAN MURID", colspan: 3, className: "section-subhead" }], true);
+  addRow([{ text: "SEMUA GURU KUMPULAN B", colspan: 3, className: "bold-center" }, { text: "SEMUA GURU KUMPULAN B", colspan: 3, className: "bold-center" }], true);
+
+  addRow([{ text: "KAWALAN DI PONDOK PENGAWAL", colspan: 6, className: "section-head" }], true);
+  addRow(dayHeader, true);
+  addRow([{ text: "Baris 1", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "PONDOK PENGAWAL 1") }))]);
+  addRow([{ text: "Baris 2", className: "small-head" }, ...DAYS.map((d) => ({ text: bGet(d, "PONDOK PENGAWAL 2") }))]);
+
+  addRow([{ text: "TUGAS KHAS", colspan: 6, className: "section-head" }], true);
+  BERTUGAS_B_FOOTER.forEach((rowLabel) => {
+    addRow([{ text: rowLabel, colspan: 3, className: "small-head" }, { text: bertugasMap[`ALL|${rowLabel}`] || "-", colspan: 3, className: "bold-center" }]);
+  });
+}
+
+function buildBertugasTable() {
+  if (getBertugasConfig().kumpulan === "B") buildBertugasTableB();
+  else buildBertugasTableD();
 }
 
 // ─── Editor Tables ───────────────────────────────────────────
@@ -1733,7 +1826,8 @@ function buildBertugasEditor() {
   thead.appendChild(buildBertugasHeaderRow());
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  for (const row of BERTUGAS_ROWS) {
+  const cfg = getBertugasConfig();
+  for (const row of cfg.rows) {
     const tr = document.createElement("tr");
     const th = document.createElement("th"); th.className = "day-col"; th.textContent = row;
     tr.appendChild(th);
@@ -1748,6 +1842,22 @@ function buildBertugasEditor() {
       td.appendChild(input);
       tr.appendChild(td);
     }
+    tbody.appendChild(tr);
+  }
+  for (const row of cfg.footer) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th"); th.className = "day-col"; th.textContent = row;
+    tr.appendChild(th);
+    const td = document.createElement("td");
+    td.colSpan = DAYS.length;
+    const input = document.createElement("input");
+    input.className = "editor-input";
+    input.placeholder = "Nama guru";
+    input.value = bertugasMap[`ALL|${row}`] || "";
+    input.dataset.bkey = `ALL|${row}`;
+    input.setAttribute("aria-label", row);
+    td.appendChild(input);
+    tr.appendChild(td);
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -1998,7 +2108,7 @@ function fuzzyMatchTeacher(raw) {
 }
 
 function normalizeTeacherField(val) {
-  const parts = String(val || "").split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
+  const parts = String(val || "").replace(/\(K\)/gi, "").split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
   if (!parts.length) return { text: "", matched: true };
   const out = [];
   let allMatched = true;
@@ -2014,30 +2124,33 @@ function getTeacherNameList() {
   return Object.keys(guruSchedules || {}).sort();
 }
 
-function normalizeBertugasRow(rowRaw) {
-  const row = String(rowRaw || "").trim().toUpperCase();
+function normalizeBertugasRow(rowRaw, kumpulan) {
+  const row = String(rowRaw || "").trim().toUpperCase().replace(/\(K\)/g, "").trim();
   if (BERTUGAS_ROW_ALIASES[row]) return BERTUGAS_ROW_ALIASES[row];
-  const hit = BERTUGAS_ROWS.find((r) => row.includes(r) || r.includes(row));
+  const cfg = getBertugasConfig(kumpulan);
+  const hit = cfg.rows.find((r) => row.includes(r) || r.includes(row));
   if (hit) return hit;
-  const footer = BERTUGAS_FOOTER_ROWS.find((r) => row.includes(r) || r.includes(row));
+  const footer = cfg.footer.find((r) => row.includes(r) || r.includes(row));
   return footer || null;
 }
 
-function normalizeBertugasKey(key) {
+function normalizeBertugasKey(key, kumpulan) {
   if (!key || typeof key !== "string") return null;
   const parts = key.split("|");
   if (parts.length !== 2) return null;
   const day = parts[0].trim().toUpperCase();
-  const row = normalizeBertugasRow(parts[1]);
+  const row = normalizeBertugasRow(parts[1], kumpulan);
   if (!row) return null;
-  if (day === "ALL" && BERTUGAS_FOOTER_ROWS.includes(row)) return `ALL|${row}`;
+  const cfg = getBertugasConfig(kumpulan);
+  if (day === "ALL" && cfg.footer.includes(row)) return `ALL|${row}`;
   if (!DAYS.includes(day)) return null;
-  if (BERTUGAS_ROWS.includes(row)) return `${day}|${row}`;
+  if (cfg.rows.includes(row)) return `${day}|${row}`;
   return null;
 }
 
-function postProcessAiAssignments(assignments) {
+function postProcessAiAssignments(assignments, kumpulan) {
   const out = { ...assignments };
+  if (getBertugasConfig(kumpulan).kumpulan !== "D") return out;
   for (const day of DAYS) {
     const k1 = `${day}|PAGAR WAKTU DATANG (MURID)`;
     const k2 = `${day}|PAGAR (12.20 TENGAH HARI)`;
@@ -2048,13 +2161,14 @@ function postProcessAiAssignments(assignments) {
 }
 
 function processAiParseResult(parsed) {
-  const uncertain = new Set((parsed?.uncertain || []).map((k) => normalizeBertugasKey(k)).filter(Boolean));
+  const kumpulan = (parsed?.kumpulan || bertugasMeta.kumpulan || "B").toUpperCase();
+  const uncertain = new Set((parsed?.uncertain || []).map((k) => normalizeBertugasKey(k, kumpulan)).filter(Boolean));
   const rawAssignments = parsed?.assignments || {};
   const normalized = {};
   const reviewRows = [];
 
   for (const [rawKey, rawVal] of Object.entries(rawAssignments)) {
-    const key = normalizeBertugasKey(rawKey);
+    const key = normalizeBertugasKey(rawKey, kumpulan);
     if (!key) continue;
     const norm = normalizeTeacherField(rawVal);
     if (!norm.text) continue;
@@ -2062,27 +2176,23 @@ function processAiParseResult(parsed) {
     reviewRows.push({
       key,
       label: key.replace("|", " — "),
-      raw: String(rawVal || "").trim().toUpperCase(),
+      raw: String(rawVal || "").replace(/\(K\)/gi, "").trim().toUpperCase(),
       value: norm.text,
-      warn: uncertain.has(key) || !norm.matched || norm.text !== String(rawVal || "").trim().toUpperCase()
+      warn: uncertain.has(key) || !norm.matched
     });
   }
 
-  const assignments = postProcessAiAssignments(normalized);
-  for (const day of DAYS) {
-    const k1 = `${day}|PAGAR WAKTU DATANG (MURID)`;
-    const k2 = `${day}|PAGAR (12.20 TENGAH HARI)`;
-    if (assignments[k1] && assignments[k1] === assignments[k2]) {
-      const existing = reviewRows.find((r) => r.key === k2);
-      if (!existing && assignments[k2]) {
-        reviewRows.push({ key: k2, label: k2.replace("|", " — "), raw: assignments[k2], value: assignments[k2], warn: false });
-      }
-    }
-  }
-
+  const assignments = postProcessAiAssignments(normalized, kumpulan);
   reviewRows.sort((a, b) => a.key.localeCompare(b.key));
   const warnCount = reviewRows.filter((r) => r.warn).length;
-  return { assignments, reviewRows, warnCount, weekStart: parsed?.weekStart || "" };
+  return {
+    assignments,
+    reviewRows,
+    warnCount,
+    weekStart: parsed?.weekStart || "",
+    weekText: parsed?.weekText || "",
+    kumpulan
+  };
 }
 
 function showAiReviewModal(processed) {
@@ -2117,7 +2227,12 @@ function closeAiReviewModal() {
 
 function confirmAiReviewApply() {
   if (!pendingAiParse) return;
-  const count = applyParsedBertugas({ assignments: pendingAiParse.assignments, weekStart: pendingAiParse.weekStart });
+  const count = applyParsedBertugas({
+    assignments: pendingAiParse.assignments,
+    weekStart: pendingAiParse.weekStart,
+    weekText: pendingAiParse.weekText,
+    kumpulan: pendingAiParse.kumpulan
+  });
   closeAiReviewModal();
   setBertugasViewMode("digital");
   activateTab("bertugas");
@@ -2127,16 +2242,19 @@ function confirmAiReviewApply() {
 
 function applyParsedBertugas(parsed) {
   const assignments = parsed?.assignments || {};
+  bertugasMap = {};
   let count = 0;
-  for (const [rawKey, rawVal] of Object.entries(assignments)) {
-    const key = normalizeBertugasKey(rawKey);
-    if (!key) continue;
-    const val = String(rawVal || "").trim().toUpperCase();
-    if (val) {
-      bertugasMap[key] = val;
+  for (const [key, val] of Object.entries(assignments)) {
+    const text = String(val || "").trim().toUpperCase();
+    if (text) {
+      bertugasMap[key] = text;
       count++;
     }
   }
+  if (parsed?.kumpulan) {
+    bertugasMeta.kumpulan = String(parsed.kumpulan).toUpperCase();
+  }
+  if (parsed?.weekText) bertugasMeta.weekText = parsed.weekText;
   if (parsed?.weekStart) {
     const d = new Date(parsed.weekStart);
     if (!Number.isNaN(d.getTime())) {
@@ -2146,6 +2264,7 @@ function applyParsedBertugas(parsed) {
       if (weekInput) weekInput.value = bertugasWeekDate;
     }
   }
+  saveBertugasMeta();
   saveBertugasMap();
   buildBertugasTable();
   buildBertugasEditor();
@@ -2161,6 +2280,10 @@ function applyCloudBertugas(payload) {
 
   bertugasMap = { ...payload.bertugasMap };
   saveBertugasMap();
+  if (payload.meta) {
+    bertugasMeta = { ...bertugasMeta, ...payload.meta };
+    saveBertugasMeta();
+  }
   if (payload.week) {
     bertugasWeekDate = payload.week;
     localStorage.setItem(KEYS.bertugasWeek, bertugasWeekDate);
@@ -2200,6 +2323,7 @@ async function publishBertugasCloud(opts = {}) {
       body: JSON.stringify({
         bertugasMap,
         week: bertugasWeekDate,
+        meta: bertugasMeta,
         referenceImages
       })
     });
@@ -2245,7 +2369,8 @@ async function parseBertugasFromImage(dataUrl) {
       body: JSON.stringify({
         apiKey,
         imageDataUrl,
-        teacherNames: getTeacherNameList()
+        teacherNames: getTeacherNameList(),
+        kumpulan: document.getElementById("bertugasKumpulanSelect")?.value || bertugasMeta.kumpulan || "B"
       })
     });
     const body = await res.json();
@@ -2433,6 +2558,17 @@ function init() {
     autoParseBox.checked = isAutoParseBertugasEnabled();
     autoParseBox.addEventListener("change", (e) => {
       localStorage.setItem(KEYS.autoParseBertugas, e.target.checked ? "1" : "0");
+    });
+  }
+  const kumpulanSelect = document.getElementById("bertugasKumpulanSelect");
+  if (kumpulanSelect) {
+    kumpulanSelect.value = bertugasMeta.kumpulan || "B";
+    kumpulanSelect.addEventListener("change", (e) => {
+      bertugasMeta.kumpulan = e.target.value;
+      saveBertugasMeta();
+      buildBertugasTable();
+      buildBertugasEditor();
+      showToast(`Format jadual: Kumpulan ${e.target.value}`);
     });
   }
   const aiParseBtn = document.getElementById("aiParseBertugasBtn");

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608ai2" />
+  <link rel="stylesheet" href="style.css?v=20260608kumpb" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -277,6 +277,11 @@
             <button id="saveGroqKeyBtn" class="btn secondary" type="button">Simpan Key</button>
             <span id="groqKeyStatus" class="upload-info"></span>
           </div>
+          <label for="bertugasKumpulanSelect" class="field-label">Format Jadual</label>
+          <select id="bertugasKumpulanSelect" class="input-glass" aria-label="Pilih format kumpulan jadual bertugas">
+            <option value="B" selected>Kumpulan B (Waktu Datang / Kantin / Pondok)</option>
+            <option value="D">Kumpulan D (Pagar / Dewan / Rehat)</option>
+          </select>
           <label class="check-label" style="margin-top:10px"><input id="autoParseBertugas" type="checkbox" checked /> Auto baca &amp; susun bila upload JPEG</label>
         </div>
       </div>
@@ -349,6 +354,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608ai2"></script>
+  <script src="app.js?v=20260608kumpb"></script>
 </body>
 </html>

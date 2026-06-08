@@ -7,57 +7,81 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 
-function buildPrompt(teacherNames) {
+function buildPromptB() {
   const days = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
   const keys = [];
   const rows = [
-    ["PAGAR WAKTU DATANG (MURID)", "Satu baris nama bawah header hari — pagar waktu datang murid"],
-    ["PAGAR (12.20 TENGAH HARI)", "Biasanya SAMA dengan pagar waktu datang untuk hari sama"],
-    ["KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)", "Baris ketua bertugas dewan tengah hari"],
-    ["WAKTU REHAT (3.00-3.30)", "Baris rehat slot pertama"],
-    ["WAKTU REHAT (3.30-4.00)", "Baris rehat slot kedua — JANGAN campur dengan slot pertama"],
-    ["KAWALAN MURID (6.00 PETANG)", "Baris kawalan murid petang — boleh 2 nama dengan /"],
-    ["TUGAS KHAS", "Jika ada dalam imej"]
+    "WAKTU DATANG",
+    "KAWALAN DI DEWAN TERBUKA",
+    "KANTIN (3.00-3.30)",
+    "KANTIN (3.30-4.00)",
+    "KANTIN (4.00-4.30)",
+    "PONDOK PENGAWAL 1",
+    "PONDOK PENGAWAL 2"
   ];
-  for (const [row] of rows) for (const day of days) keys.push(`${day}|${row}`);
-  ["BUKU LAPORAN BERTUGAS", "LAPORAN BERTUGAS&NILAI MURNI", "RMT/KANTIN"].forEach((r) => keys.push(`ALL|${r}`));
+  for (const row of rows) for (const day of days) keys.push(`${day}|${row}`);
+  ["BUKU LAPORAN BERTUGAS", "LAPORAN BERTUGAS", "RMT/KANTIN/SUSU"].forEach((r) => keys.push(`ALL|${r}`));
 
-  return `Anda OCR jadual bertugas sekolah Malaysia. Imej ialah jadual dengan LAJUR hari (ISNIN→JUMAAT).
+  return `OCR jadual JADUAL BERTUGAS KUMPULAN B (format sekolah Malaysia).
 
-STRUKTUR JADUAL (atas ke bawah):
-1. PAGAR WAKTU DATANG (MURID) — 1 baris 5 nama (ISNIN..JUMAAT)
-2. PAGAR (12.20 TENGAH HARI) — biasanya nama sama seperti #1
-3. KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI) — 1 baris 5 nama
-4. WAKTU REHAT — 2 baris berasingan:
-   - baris "3.00-3.30" (5 nama)
-   - baris "3.30-4.00" (5 nama)
-5. KAWALAN MURID (6.00 PETANG) — 1 baris 5 nama
-6. Footer (seluruh minggu): BUKU LAPORAN BERTUGAS, LAPORAN BERTUGAS&NILAI MURNI, RMT/KANTIN
+STRUKTUR IMEJ (atas→bawah):
+1. WAKTU DATANG > KAWALAN DI PINTU PAGAR B — 1 baris: ISNIN..JUMAAT
+   → key: ISNIN|WAKTU DATANG, SELASA|WAKTU DATANG, ...
+2. KAWALAN DI DEWAN TERBUKA — 1 baris 5 nama (buang suffix (K))
+   → key: ISNIN|KAWALAN DI DEWAN TERBUKA, ...
+3. KAWALAN DI KANTIN:
+   - 3.00-3.30 PTG: ISNIN-KHAMIS (JUMAAT kosong "-")
+   - 3.30-4.00 PTG: ISNIN-KHAMIS
+   - JUMAAT sahaja: 3.30-4.00 → JUMAAT|KANTIN (3.30-4.00), 4.00-4.30 → JUMAAT|KANTIN (4.00-4.30)
+4. KAWALAN DI PONDOK PENGAWAL — 2 baris atas/bawah setiap hari:
+   - baris atas → PONDOK PENGAWAL 1
+   - baris bawah → PONDOK PENGAWAL 2
+5. TUGAS KHAS (ALL|...):
+   - BUKU LAPORAN BERTUGAS
+   - LAPORAN BERTUGAS
+   - RMT/KANTIN/SUSU
 
 PENTING:
-- Baca setiap SEL mengikut LAJUR hari di atasnya, bukan baris sebelah
-- Jangan gerakkan nama ke hari salah
-- Waktu rehat ada 2 baris — jangan salin baris pertama ke baris kedua
-- Padankan ejaan nama ke senarai guru jika hampir sama
+- Baca mengikut LAJUR hari (ISNIN, SELASA, RABU, KHAMIS, JUMAAT)
+- Jangan campur baris kantin 3.00-3.30 dengan 3.30-4.00
+- Pondok pengawal: 2 nama menegak per hari = 2 baris berasingan
+- Nama tepat seperti dalam imej (MURSIDA, YUSUF, FARAH, AKALILI, RODZIAH, HALIYZA, dll)
+- GURU WANITA = nama sah untuk JUMAAT pagar
 
-Senarai guru sah: ${teacherNames.join(", ")}
-
-Kunci JSON (guna tepat):
+Kunci JSON wajib:
 ${keys.map((k) => `"${k}"`).join(", ")}
 
 Return JSON:
 {
-  "weekStart": "YYYY-MM-DD",
-  "weekEnd": "YYYY-MM-DD",
-  "assignments": { "ISNIN|PAGAR WAKTU DATANG (MURID)": "NAMA", ... },
-  "uncertain": ["ISNIN|WAKTU REHAT (3.00-3.30)"]
+  "kumpulan": "B",
+  "weekStart": "2026-06-08",
+  "weekEnd": "2026-06-12",
+  "weekText": "TARIKH BERTUGAS: 8 HINGGA 12 JUN 2026",
+  "assignments": { "ISNIN|WAKTU DATANG": "MURSIDA", ... },
+  "uncertain": []
 }
 
-Peraturan:
-- Nama UPPERCASE, 2 guru: "NAMA1 / NAMA2"
-- uncertain = slot yang kurang pasti / blur
-- Kosongkan "" jika tiada dalam imej
-- Jangan cipta kunci baru`;
+Peraturan: UPPERCASE, buang (K), kosong "" jika tiada.`;
+}
+
+function buildPromptD(teacherNames) {
+  const days = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
+  const rows = [
+    "PAGAR WAKTU DATANG (MURID)",
+    "PAGAR (12.20 TENGAH HARI)",
+    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
+    "WAKTU REHAT (3.00-3.30)",
+    "WAKTU REHAT (3.30-4.00)",
+    "KAWALAN MURID (6.00 PETANG)"
+  ];
+  const keys = [];
+  for (const row of rows) for (const day of days) keys.push(`${day}|${row}`);
+  ["BUKU LAPORAN BERTUGAS", "LAPORAN BERTUGAS&NILAI MURNI", "RMT/KANTIN"].forEach((r) => keys.push(`ALL|${r}`));
+
+  return `OCR jadual JADUAL BERTUGAS KUMPULAN D.
+Senarai guru: ${teacherNames.join(", ")}
+Kunci: ${keys.join(", ")}
+Return JSON: { "kumpulan":"D", "weekStart":"", "weekText":"", "assignments":{}, "uncertain":[] }`;
 }
 
 exports.handler = async (event) => {
@@ -69,13 +93,17 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { apiKey, imageDataUrl, teacherNames = [] } = JSON.parse(event.body || "{}");
+    const { apiKey, imageDataUrl, teacherNames = [], kumpulan = "B" } = JSON.parse(event.body || "{}");
     if (!apiKey) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "API key diperlukan" }) };
     }
     if (!imageDataUrl) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Imej diperlukan" }) };
     }
+
+    const prompt = String(kumpulan).toUpperCase() === "D"
+      ? buildPromptD(teacherNames)
+      : buildPromptB();
 
     const groqRes = await fetch(GROQ_URL, {
       method: "POST",
@@ -92,7 +120,7 @@ exports.handler = async (event) => {
           {
             role: "user",
             content: [
-              { type: "text", text: buildPrompt(teacherNames) },
+              { type: "text", text: prompt },
               { type: "image_url", image_url: { url: imageDataUrl } }
             ]
           }
@@ -113,6 +141,8 @@ exports.handler = async (event) => {
     } catch {
       return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "AI return bukan JSON sah", raw }) };
     }
+
+    if (!parsed.kumpulan) parsed.kumpulan = String(kumpulan).toUpperCase() === "D" ? "D" : "B";
 
     return {
       statusCode: 200,
