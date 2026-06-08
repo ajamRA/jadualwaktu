@@ -4,7 +4,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS"
 };
 
-const RAW_URL = "https://raw.githubusercontent.com/ajamRA/jadualwaktu/main/bertugas-live.json";
+const GITHUB_OWNER = "ajamRA";
+const GITHUB_REPO = "jadualwaktu";
+const GITHUB_FILE = "bertugas-live.json";
+const GITHUB_BRANCH = "main";
 
 async function readFromBlobs(context) {
   try {
@@ -21,9 +24,20 @@ async function readFromBlobs(context) {
 }
 
 async function readFromGitHub() {
-  const res = await fetch(`${RAW_URL}?t=${Date.now()}`, { cache: "no-store" });
+  const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}?ref=${GITHUB_BRANCH}`;
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "jadualwaktu-netlify"
+  };
+  const token = process.env.GITHUB_BERTUGAS_TOKEN || process.env.GITHUB_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(apiUrl, { headers, cache: "no-store" });
   if (!res.ok) return null;
-  const data = await res.json();
+  const meta = await res.json();
+  if (!meta?.content) return null;
+  const json = Buffer.from(meta.content.replace(/\n/g, ""), "base64").toString("utf8");
+  const data = JSON.parse(json);
   if (!data?.bertugasMap || !data.updatedAt) return null;
   if (!Object.keys(data.bertugasMap).length) return null;
   return data;
