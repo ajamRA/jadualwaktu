@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 TutupKelas";
+const BUILD_ID = "Build 2026-06-08 AbsentRange";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -421,19 +421,25 @@ function formatReliefDateLabel(dateStr) {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} (${dayMap[d.getDay()]})`;
 }
 
-function syncAbsentRangesForCurrentDate() {
-  const date = currentReliefDate;
-  if (!date) return;
-  [...absentTeachers].forEach((name) => {
-    const range = ensureAbsentRange(name);
-    let { start, end } = range;
-    if (!start) start = date;
-    if (!end) end = start;
-    if (date < start) start = date;
-    if (date > end) end = date;
-    absentRanges[name] = { start, end };
-  });
-  saveAbsentRanges();
+function getAbsentTeachersForDate(dateStr) {
+  const date = dateStr || currentReliefDate || todayIso();
+  const teachers = new Set(getAllTeachers());
+  return Object.entries(absentRanges)
+    .filter(([name, range]) => {
+      if (!teachers.has(name) || !range) return false;
+      const start = range.start || range.end || "";
+      const end = range.end || range.start || "";
+      if (!start) return false;
+      return date >= start && date <= (end || start);
+    })
+    .map(([name]) => name)
+    .sort();
+}
+
+function applyAbsentTeachersFromRanges(dateStr) {
+  const names = getAbsentTeachersForDate(dateStr);
+  names.forEach((name) => absentTeachers.add(name));
+  if (!focusAbsentTeacher && names.length) focusAbsentTeacher = names[0];
 }
 
 function loadPlanByDate(dateStr, opts = {}) {
@@ -451,10 +457,11 @@ function loadPlanByDate(dateStr, opts = {}) {
   const isNewPlan = !found;
   if (found) {
     applyPlanPayload(found);
-    syncAbsentRangesForCurrentDate();
+    applyAbsentTeachersFromRanges(currentReliefDate);
   } else {
     reliefAssignments = {};
     absentTeachers.clear();
+    applyAbsentTeachersFromRanges(currentReliefDate);
     closedClasses = new Set();
     isReliefPlanApproved = false;
     setReliefStatus(`Status: Draft (Plan baru) | ${formatReliefDateLabel(currentReliefDate)}`);
@@ -465,7 +472,12 @@ function loadPlanByDate(dateStr, opts = {}) {
   if (!silent && prevDate !== currentReliefDate) {
     const day = getReliefDay();
     if (!day) showToast(`${formatReliefDateLabel(currentReliefDate)} — hujung minggu, tiada jadual sekolah.`);
-    else if (isNewPlan) showToast(`Plan baru: ${formatReliefDateLabel(currentReliefDate)}. Tanda guru tak hadir.`);
+    else if (isNewPlan) {
+      const carried = getAbsentTeachersForDate(currentReliefDate);
+      showToast(carried.length
+        ? `Plan baru: ${formatReliefDateLabel(currentReliefDate)}. ${carried.length} guru cuti diambil dari julat tarikh.`
+        : `Plan baru: ${formatReliefDateLabel(currentReliefDate)}. Tanda guru tak hadir.`);
+    }
     else showToast(`Plan dimuat: ${formatReliefDateLabel(currentReliefDate)}.`);
   }
 }
@@ -508,9 +520,10 @@ function getReliefDay() {
 
 function isTeacherAbsentOnDate(name, dateStr) {
   const date = dateStr || currentReliefDate || todayIso();
-  const range = ensureAbsentRange(name);
-  const start = range.start || date;
-  const end = range.end || start;
+  const range = absentRanges[name];
+  if (!range) return absentTeachers.has(name) && date === (currentReliefDate || todayIso());
+  const start = range.start || range.end || date;
+  const end = range.end || range.start || start;
   return date >= start && date <= end;
 }
 
@@ -1145,6 +1158,8 @@ function addAbsentTeacher(name) {
 function removeAbsentTeacher(name) {
   if (isReliefPlanApproved) return;
   absentTeachers.delete(name);
+  delete absentRanges[name];
+  saveAbsentRanges();
   if (focusAbsentTeacher === name) focusAbsentTeacher = [...absentTeachers][0] || "";
   autosaveReliefPlan();
   renderReliefUi();
