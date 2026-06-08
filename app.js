@@ -13,8 +13,10 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 LayoutFix";
+const BUILD_ID = "Build 2026-06-08 CloseSuggest";
 const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
+const CLASS_ABSENT_CLOSE_THRESHOLD = 9;
+const DEFAULT_CLASS_SIZE = 30;
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -222,6 +224,8 @@ let absentRanges = loadAbsentRanges();
 let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
 let bertugasMeta = loadBertugasMeta();
 let closedClasses = new Set(); // Format: "KELAS_NAME" — kelas yang ditutup hari ini
+let classAbsentCounts = {}; // Format: { "2 AL FARABI": 12 } — anggaran murid tak hadir
+let classCloseAiAdvice = null;
 let autosaveTimer = null;
 let pendingAiParse = null;
 let bertugasEditMode = false;
@@ -295,16 +299,17 @@ function loadReliefScore() {
 }
 function loadReliefRules() {
   const raw = localStorage.getItem(KEYS.reliefRules);
-  if (!raw) return { maxPerDay: 2, blocklist: [], includeDutyRule: true, strictBreakRule: true };
+  if (!raw) return { maxPerDay: 2, blocklist: [], includeDutyRule: true, strictBreakRule: true, defaultClassSize: DEFAULT_CLASS_SIZE };
   try {
     const v = JSON.parse(raw);
     return {
       maxPerDay: Number(v.maxPerDay || 2),
       blocklist: Array.isArray(v.blocklist) ? v.blocklist : [],
       includeDutyRule: v.includeDutyRule !== false,
-      strictBreakRule: v.strictBreakRule !== false
+      strictBreakRule: v.strictBreakRule !== false,
+      defaultClassSize: Number(v.defaultClassSize) || DEFAULT_CLASS_SIZE
     };
-  } catch { return { maxPerDay: 2, blocklist: [], includeDutyRule: true, strictBreakRule: true }; }
+  } catch { return { maxPerDay: 2, blocklist: [], includeDutyRule: true, strictBreakRule: true, defaultClassSize: DEFAULT_CLASS_SIZE }; }
 }
 function loadReliefPlans() {
   const raw = localStorage.getItem(KEYS.reliefPlans);
@@ -398,7 +403,15 @@ function getCurrentAbsentRanges() {
 }
 
 function getCurrentPlanPayload() {
-  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], absentRanges: getCurrentAbsentRanges(), approved: isReliefPlanApproved, rules: reliefRules, closedClasses: [...closedClasses] };
+  return {
+    assignments: reliefAssignments,
+    absentTeachers: [...absentTeachers],
+    absentRanges: getCurrentAbsentRanges(),
+    approved: isReliefPlanApproved,
+    rules: reliefRules,
+    closedClasses: [...closedClasses],
+    classAbsentCounts: { ...classAbsentCounts }
+  };
 }
 function applyPlanPayload(plan) {
   reliefAssignments = { ...(plan.assignments || {}) };
@@ -408,6 +421,8 @@ function applyPlanPayload(plan) {
   [...absentTeachers].forEach((name) => ensureAbsentRange(name));
   saveAbsentRanges();
   closedClasses = new Set(plan.closedClasses || []);
+  classAbsentCounts = { ...(plan.classAbsentCounts || {}) };
+  classCloseAiAdvice = null;
   isReliefPlanApproved = !!plan.approved;
   if (plan.rules) reliefRules = plan.rules;
   renderReliefRulesForm();
@@ -464,6 +479,8 @@ function loadPlanByDate(dateStr, opts = {}) {
     absentTeachers.clear();
     applyAbsentTeachersFromRanges(currentReliefDate);
     closedClasses = new Set();
+    classAbsentCounts = {};
+    classCloseAiAdvice = null;
     isReliefPlanApproved = false;
     setReliefStatus(`Status: Draft (Plan baru) | ${formatReliefDateLabel(currentReliefDate)}`);
   }
@@ -1360,6 +1377,7 @@ function addAbsentTeacher(name) {
   ensureAbsentRange(trimmed, true);
   saveAbsentRanges();
   if (!focusAbsentTeacher) focusAbsentTeacher = trimmed;
+  classCloseAiAdvice = null;
   autosaveReliefPlan();
   renderReliefUi();
 }
@@ -1369,6 +1387,7 @@ function removeAbsentTeacher(name) {
   delete absentRanges[name];
   saveAbsentRanges();
   if (focusAbsentTeacher === name) focusAbsentTeacher = [...absentTeachers][0] || "";
+  classCloseAiAdvice = null;
   autosaveReliefPlan();
   renderReliefUi();
 }
@@ -1979,6 +1998,296 @@ function renderReliefStats() {
   });
 }
 
+// ─── Cadangan Tutup Kelas (peraturan + AI) ───────────────────
+function getDefaultClassSize() {
+  return Number(reliefRules.defaultClassSize) || DEFAULT_CLASS_SIZE;
+}
+
+function setClassAbsentCount(cls, count) {
+  if (!cls) return;
+  const n = Math.max(0, Number(count) || 0);
+  if (n) classAbsentCounts[cls] = n;
+  else delete classAbsentCounts[cls];
+  autosaveReliefPlan();
+}
+
+function getAffectedClassImpact(reliefDay) {
+  const impact = {};
+  if (!reliefDay) return impact;
+  [...absentTeachers].forEach((teacher) => {
+    if (!isTeacherAbsentOnDate(teacher, currentReliefDate)) return;
+    const map = guruSchedules[teacher] || {};
+    Object.entries(map).forEach(([key, val]) => {
+      const [day, time] = key.split("|");
+      if (day !== reliefDay || !val || !val.includes("|")) return;
+      if (!isTeacherAbsentForSlot(teacher, day, time)) return;
+      const cls = getSlotClassName(val);
+      if (!cls || cls === "KELAS_TAKDIKESAN") return;
+      if (!impact[cls]) impact[cls] = { slots: [] };
+      const reliefKey = `${teacher}|${day}|${time}`;
+      const assignee = reliefAssignments[reliefKey] || "";
+      const until = getAbsentUntilTime(teacher);
+      impact[cls].slots.push({
+        teacher,
+        time,
+        hasRelief: !!assignee,
+        assignee,
+        partial: !!until,
+        returnLabel: until ? formatUntilTimeLabel(until) : ""
+      });
+    });
+  });
+  return impact;
+}
+
+function analyzeClassClosureCandidates() {
+  const reliefDay = getReliefDay();
+  const impact = getAffectedClassImpact(reliefDay);
+  const classSize = getDefaultClassSize();
+  const results = [];
+
+  Object.entries(impact).forEach(([cls, data]) => {
+    const muridTidakHadir = classAbsentCounts[cls] || 0;
+    const muridHadir = Math.max(0, classSize - muridTidakHadir);
+    const uncovered = data.slots.filter((s) => !s.hasRelief);
+    const partialSlots = data.slots.filter((s) => s.partial);
+    const reasons = [];
+    let recommend = "ok";
+
+    if (isClosedClass(cls)) {
+      results.push({
+        cls,
+        alreadyClosed: true,
+        recommend: "tutup",
+        reasons: ["Kelas sudah ditandakan tutup"],
+        slots: data.slots,
+        uncoveredCount: uncovered.length,
+        muridTidakHadir,
+        muridHadir,
+        partialCount: partialSlots.length
+      });
+      return;
+    }
+
+    if (muridTidakHadir > CLASS_ABSENT_CLOSE_THRESHOLD) {
+      recommend = "tutup";
+      reasons.push(`Murid tidak hadir ${muridTidakHadir} (>9) — hadir ${muridHadir}, patut tutup kelas`);
+    } else if (uncovered.length > 0) {
+      recommend = uncovered.length >= data.slots.length ? "tutup" : "relief";
+      reasons.push(`${uncovered.length} slot belum ada relief: ${uncovered.map((s) => `${s.teacher} ${s.time}`).join(", ")}`);
+      if (partialSlots.length) {
+        reasons.push(`Guru relief separuh hari: ${[...new Set(partialSlots.map((s) => `${s.teacher} (${s.returnLabel})`))].join("; ")}`);
+      }
+    } else if (partialSlots.length) {
+      recommend = "ok";
+      reasons.push("Relief separuh hari — slot selepas guru hadir semula diurus sendiri. Semua slot sebelum itu ada relief.");
+    } else {
+      reasons.push("Semua slot ada relief — tidak perlu tutup kelas");
+    }
+
+    if (muridTidakHadir > 0 && muridTidakHadir <= CLASS_ABSENT_CLOSE_THRESHOLD && recommend === "ok") {
+      reasons.push(`Murid tidak hadir ${muridTidakHadir} (≤9) — kelas masih boleh jalan`);
+    }
+
+    results.push({
+      cls,
+      alreadyClosed: false,
+      recommend,
+      reasons,
+      slots: data.slots,
+      uncoveredCount: uncovered.length,
+      muridTidakHadir,
+      muridHadir,
+      partialCount: partialSlots.length
+    });
+  });
+
+  return results.sort((a, b) => {
+    const order = { tutup: 0, relief: 1, ok: 2 };
+    return (order[a.recommend] ?? 3) - (order[b.recommend] ?? 3) || a.cls.localeCompare(b.cls);
+  });
+}
+
+function getAiAdviceForClass(cls) {
+  if (!classCloseAiAdvice?.suggestions) return null;
+  return classCloseAiAdvice.suggestions.find((s) => String(s.class || "").trim() === cls) || null;
+}
+
+function recommendLabel(recommend) {
+  if (recommend === "tutup") return "Cadang tutup";
+  if (recommend === "relief") return "Assign relief dulu";
+  return "Tidak perlu tutup";
+}
+
+function renderClassCloseSuggestions() {
+  const wrap = document.getElementById("classCloseSuggestions");
+  const status = document.getElementById("classCloseSuggestStatus");
+  const sizeInput = document.getElementById("defaultClassSizeInput");
+  if (!wrap) return;
+
+  if (sizeInput) sizeInput.value = String(getDefaultClassSize());
+
+  const reliefDay = getReliefDay();
+  const candidates = analyzeClassClosureCandidates();
+
+  if (!reliefDay || !absentTeachers.size) {
+    wrap.innerHTML = "<div class='hint'>Tanda guru tak hadir untuk lihat cadangan tutup kelas.</div>";
+    if (status) status.textContent = "";
+    return;
+  }
+
+  if (!candidates.length) {
+    wrap.innerHTML = "<div class='hint'>Tiada kelas terjejas oleh guru tak hadir pada hari ini.</div>";
+    if (status) status.textContent = "";
+    return;
+  }
+
+  wrap.innerHTML = "";
+  if (status) {
+    status.textContent = classCloseAiAdvice?.summary
+      ? `AI: ${classCloseAiAdvice.summary}`
+      : "Cadangan automatik ikut peraturan (>9 murid tak hadir = tutup). Tekan Semak AI untuk pendapat AI.";
+  }
+
+  candidates.forEach((item) => {
+    const ai = getAiAdviceForClass(item.cls);
+    const card = document.createElement("div");
+    card.className = `close-suggest-card rec-${item.recommend}${item.alreadyClosed ? " is-closed" : ""}`;
+
+    const head = document.createElement("div");
+    head.className = "close-suggest-head";
+    const title = document.createElement("strong");
+    title.textContent = item.cls;
+    const badge = document.createElement("span");
+    badge.className = `close-suggest-badge badge-${item.recommend}`;
+    badge.textContent = recommendLabel(item.recommend);
+    head.appendChild(title);
+    head.appendChild(badge);
+    card.appendChild(head);
+
+    const meta = document.createElement("div");
+    meta.className = "close-suggest-meta";
+    meta.textContent = `${item.slots.length} slot terjejas · hadir ~${item.muridHadir}/${getDefaultClassSize()} murid`;
+    card.appendChild(meta);
+
+    item.reasons.forEach((reason) => {
+      const line = document.createElement("div");
+      line.className = "close-suggest-reason";
+      line.textContent = `• ${reason}`;
+      card.appendChild(line);
+    });
+
+    if (ai) {
+      const aiLine = document.createElement("div");
+      aiLine.className = "close-suggest-ai";
+      const aiAction = ai.action === "tutup" ? "Tutup" : ai.action === "relief_dulu" ? "Relief dulu" : "Jangan tutup";
+      aiLine.textContent = `AI (${ai.confidence || "sederhana"}): ${aiAction} — ${ai.reason || ""}`;
+      card.appendChild(aiLine);
+    }
+
+    const tools = document.createElement("div");
+    tools.className = "close-suggest-tools";
+
+    const muridLabel = document.createElement("label");
+    muridLabel.className = "close-suggest-murid";
+    muridLabel.textContent = "Murid tak hadir";
+    const muridInput = document.createElement("input");
+    muridInput.type = "number";
+    muridInput.min = "0";
+    muridInput.max = "45";
+    muridInput.className = "input-glass input-narrow";
+    muridInput.value = String(item.muridTidakHadir || "");
+    muridInput.disabled = isReliefPlanApproved;
+    muridInput.setAttribute("aria-label", `Murid tidak hadir ${item.cls}`);
+    muridInput.addEventListener("change", () => {
+      setClassAbsentCount(item.cls, muridInput.value);
+      classCloseAiAdvice = null;
+      renderClassCloseSuggestions();
+    });
+    muridLabel.appendChild(muridInput);
+    tools.appendChild(muridLabel);
+
+    if (!item.alreadyClosed && !isReliefPlanApproved) {
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "btn secondary";
+      closeBtn.textContent = "Tutup kelas";
+      closeBtn.addEventListener("click", () => addClosedClassByName(item.cls));
+      tools.appendChild(closeBtn);
+    }
+
+    card.appendChild(tools);
+    wrap.appendChild(card);
+  });
+}
+
+async function aiAnalyzeClassClosure() {
+  const apiKey = getGroqApiKey();
+  if (!apiKey) {
+    showToast("Set Groq API key di Admin dulu.");
+    return;
+  }
+  const reliefDay = getReliefDay();
+  if (!reliefDay || !absentTeachers.size) {
+    showToast("Tanda guru tak hadir dahulu.");
+    return;
+  }
+
+  const status = document.getElementById("classCloseSuggestStatus");
+  if (status) status.textContent = "AI sedang semak cadangan tutup kelas...";
+
+  const candidates = analyzeClassClosureCandidates();
+  const context = {
+    tarikh: currentReliefDate,
+    hari: reliefDay,
+    sesi: "petang 12:15-6:45",
+    peraturan: `Murid tidak hadir > ${CLASS_ABSENT_CLOSE_THRESHOLD} = tutup kelas`,
+    saizKelas: getDefaultClassSize(),
+    guruTakHadir: [...absentTeachers].map((name) => ({
+      nama: name,
+      reliefHingga: getAbsentUntilTime(name) ? formatUntilTimeLabel(getAbsentUntilTime(name)) : "sepanjang sesi petang",
+      sebab: absentReasons[name] || ""
+    })),
+    kelasTerjejas: candidates.map((c) => ({
+      kelas: c.cls,
+      cadanganSistem: c.recommend,
+      sebabSistem: c.reasons,
+      muridTidakHadir: c.muridTidakHadir,
+      muridHadir: c.muridHadir,
+      slot: c.slots,
+      sudahTutup: c.alreadyClosed
+    })),
+    kelasSudahTutup: [...closedClasses]
+  };
+
+  try {
+    const res = await fetch(GROQ_PROXY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey, mode: "relief-close", context })
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `Ralat ${res.status}`);
+    classCloseAiAdvice = body.data || null;
+    renderClassCloseSuggestions();
+    showToast("Cadangan AI siap — semak di bawah.");
+  } catch (err) {
+    if (status) status.textContent = "";
+    showToast(`AI gagal: ${err.message}`);
+  }
+}
+
+function addClosedClassByName(cls) {
+  if (isReliefPlanApproved || !cls || closedClasses.has(cls)) return;
+  closedClasses.add(cls);
+  clearReliefAssignmentsForClosedClass(cls);
+  autosaveReliefPlan();
+  renderClosedClassOptions();
+  renderClosedClassesUi();
+  renderReliefUi();
+  showToast(`Kelas ${cls} ditutup — slot relief untuk kelas ini dibatalkan.`);
+}
+
 // ─── Tutup Kelas UI ─────────────────────────────────────────
 function renderClosedClassesUi() {
   const wrap = document.getElementById("closedClassList");
@@ -2026,6 +2335,7 @@ function renderClosedClassesUi() {
       info.textContent = "";
     }
   }
+  renderClassCloseSuggestions();
 }
 
 function addClosedClass() {
@@ -2968,6 +3278,8 @@ function applyCloudRelief(payload, opts = {}) {
     reliefAssignments = {};
     absentTeachers.clear();
     closedClasses = new Set();
+    classAbsentCounts = {};
+    classCloseAiAdvice = null;
     isReliefPlanApproved = false;
     updateReliefPlanStatusLabel();
   }
@@ -3334,6 +3646,13 @@ function init() {
 
   // Tutup Kelas
   document.getElementById("addClosedClassBtn").addEventListener("click", addClosedClass);
+  document.getElementById("analyzeCloseClassBtn")?.addEventListener("click", aiAnalyzeClassClosure);
+  document.getElementById("defaultClassSizeInput")?.addEventListener("change", (e) => {
+    reliefRules.defaultClassSize = Math.max(1, Number(e.target.value) || DEFAULT_CLASS_SIZE);
+    saveReliefRules();
+    classCloseAiAdvice = null;
+    renderClassCloseSuggestions();
+  });
 
   // WhatsApp
   document.getElementById("generateWaBtn").addEventListener("click", generateWaMessage);

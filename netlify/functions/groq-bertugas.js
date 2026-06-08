@@ -87,6 +87,35 @@ Kunci: ${keys.join(", ")}
 Return JSON: { "kumpulan":"D", "weekStart":"", "weekText":"", "assignments":{}, "uncertain":[] }`;
 }
 
+function buildPromptReliefClose(context) {
+  return `Anda pembantu guru besar sekolah rendah Malaysia (sesi PETANG 12:15-6:45).
+
+PERATURAN TUTUP KELAS:
+- Jika murid TIDAK HADIR lebih daripada 9 orang (hadir ≤9), kelas PATUT ditutup.
+- Relief separuh hari (mesyuarat): guru hadir semula pada masa tertentu — slot SELEPAS masa itu guru sendiri mengajar; biasanya TIDAK perlu tutup kelas melainkan murid terlalu sedikit atau tiada relief untuk slot sebelum itu.
+- Tutup kelas = slot guru tak hadir untuk kelas itu tidak perlu relief; guru lain yang mengajar kelas sama jadi available untuk relief lain.
+- Jangan cadang tutup kelas jika semua slot sudah ada relief dan murid hadir mencukupi (>9).
+
+DATA ANALISIS HARI INI:
+${JSON.stringify(context, null, 2)}
+
+Return JSON sahaja:
+{
+  "summary": "ringkasan 1-2 ayat untuk pentadbir",
+  "suggestions": [
+    {
+      "class": "2 AL FARABI",
+      "action": "tutup",
+      "confidence": "tinggi",
+      "reason": "sebab ringkas dalam BM"
+    }
+  ]
+}
+
+action mesti salah satu: "tutup", "jangan_tutup", "relief_dulu"
+confidence: "tinggi", "sederhana", "rendah"`;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
@@ -96,17 +125,29 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { apiKey, imageDataUrl, teacherNames = [], kumpulan = "B" } = JSON.parse(event.body || "{}");
+    const { apiKey, imageDataUrl, mode, context, teacherNames = [], kumpulan = "B" } = JSON.parse(event.body || "{}");
     if (!apiKey) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "API key diperlukan" }) };
     }
-    if (!imageDataUrl) {
+
+    const isReliefClose = mode === "relief-close";
+    if (!isReliefClose && !imageDataUrl) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Imej diperlukan" }) };
     }
+    if (isReliefClose && !context) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Context diperlukan" }) };
+    }
 
-    const prompt = String(kumpulan).toUpperCase() === "D"
-      ? buildPromptD(teacherNames)
-      : buildPromptB();
+    const prompt = isReliefClose
+      ? buildPromptReliefClose(context)
+      : (String(kumpulan).toUpperCase() === "D" ? buildPromptD(teacherNames) : buildPromptB());
+
+    const userContent = isReliefClose
+      ? [{ type: "text", text: prompt }]
+      : [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: imageDataUrl } }
+        ];
 
     const groqRes = await fetch(GROQ_URL, {
       method: "POST",
@@ -117,17 +158,9 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         model: GROQ_MODEL,
         temperature: 0,
-        max_completion_tokens: 4096,
+        max_completion_tokens: isReliefClose ? 2048 : 4096,
         response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: imageDataUrl } }
-            ]
-          }
-        ]
+        messages: [{ role: "user", content: userContent }]
       })
     });
 
