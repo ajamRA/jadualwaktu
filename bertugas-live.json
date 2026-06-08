@@ -1,8 +1,12 @@
 {
   "version": 1,
-  "updatedAt": null,
-  "week": null,
-  "meta": { "kumpulan": "B", "weekText": "" },
-  "bertugasMap": {},
+  "updatedAt": "2026-06-08T10:02:10.924Z",
+  "week": "2026-06-09",
+  "meta": {
+    "kumpulan": "B"
+  },
+  "bertugasMap": {
+    "ISNIN|Kantin": "CIKGU TEST"
+  },
   "referenceImages": []
 }
