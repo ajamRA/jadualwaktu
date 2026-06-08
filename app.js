@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 AbsentRange";
+const BUILD_ID = "Build 2026-06-08 TutupKelas2";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -583,6 +583,27 @@ function isClosedClass(cls) {
   return !!cls && closedClasses.has(cls);
 }
 
+function getAbsentSlotClassName(absentTeacher, day, time) {
+  const val = (guruSchedules[absentTeacher] || {})[`${day}|${time}`] || "";
+  return getSlotClassName(val);
+}
+
+function isAbsentTeacherSlotClosed(absentTeacher, day, time) {
+  return isClosedClass(getAbsentSlotClassName(absentTeacher, day, time));
+}
+
+function clearReliefAssignmentsForClosedClass(cls) {
+  const reliefDay = getReliefDay();
+  if (!reliefDay || !cls) return;
+  Object.keys({ ...reliefAssignments }).forEach((key) => {
+    const parts = key.split("|");
+    if (parts.length < 3) return;
+    const [absent, day, time] = parts;
+    if (day !== reliefDay) return;
+    if (getAbsentSlotClassName(absent, day, time) === cls) clearReliefSlot(key, { skipUndo: true });
+  });
+}
+
 function isTeacherAvailableAtSlot(teacher, day, time) {
   if (!day || !time) return false;
   const val = (guruSchedules[teacher] || {})[`${day}|${time}`] || "";
@@ -819,6 +840,7 @@ function autoAssignGreedy() {
   const subjectMap = getSubjectTeachersMap();
   let assigned = 0;
   let skipped = 0;
+  let closed = 0;
 
   absent.forEach((absentName) => {
     const map = guruSchedules[absentName] || {};
@@ -826,6 +848,7 @@ function autoAssignGreedy() {
       if (!val || !val.includes("|")) return;
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only process today's slots
+      if (isAbsentTeacherSlotClosed(absentName, day, time)) { closed++; return; }
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return; // already assigned
       const subject = val.split("|")[0].trim().toUpperCase();
@@ -848,7 +871,12 @@ function autoAssignGreedy() {
   autosaveReliefPlan();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
-  if (log) log.textContent = `Auto-assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
+  if (log) {
+    const parts = [`${assigned} slot diisi`];
+    if (closed) parts.push(`${closed} kelas tutup`);
+    if (skipped) parts.push(`${skipped} tiada guru`);
+    log.textContent = `Auto-assign (${reliefDay}): ${parts.join(", ")}.`;
+  }
   showToast(`Auto-assign: ${assigned} slot diisi.`);
 }
 
@@ -868,12 +896,14 @@ function autoAssignSmart() {
 
   // Collect all unassigned slots FOR TODAY ONLY
   const slots = [];
+  let closed = 0;
   absent.forEach((absentName) => {
     const map = guruSchedules[absentName] || {};
     Object.entries(map).forEach(([key, val]) => {
       if (!val || !val.includes("|")) return;
       const [day, time] = key.split("|");
       if (day !== reliefDay) return; // Only today
+      if (isAbsentTeacherSlotClosed(absentName, day, time)) { closed++; return; }
       const assignKey = `${absentName}|${key}`;
       if (reliefAssignments[assignKey]) return;
       const subject = val.split("|")[0].trim().toUpperCase();
@@ -908,7 +938,12 @@ function autoAssignSmart() {
   autosaveReliefPlan();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
-  if (log) log.textContent = `Smart assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
+  if (log) {
+    const parts = [`${assigned} slot diisi`];
+    if (closed) parts.push(`${closed} kelas tutup`);
+    if (skipped) parts.push(`${skipped} tiada guru`);
+    log.textContent = `Smart assign (${reliefDay}): ${parts.join(", ")}.`;
+  }
   showToast(`Smart assign: ${assigned} slot diisi.`);
 }
 
@@ -1113,8 +1148,23 @@ function renderClassOptions() {
 
 function buildClassTable() {
   const table = document.getElementById("classTable");
+  const banner = document.getElementById("classClosedBanner");
   if (!table) return;
   table.innerHTML = "";
+  const reliefDay = getReliefDay();
+  const classIsClosed = isClosedClass(selectedClass);
+  if (banner) {
+    if (classIsClosed && reliefDay) {
+      banner.textContent = `Kelas ${selectedClass} ditandakan TUTUP pada ${formatReliefDateLabel(currentReliefDate)} (${reliefDay}). Slot hari ini tidak perlukan relief.`;
+      banner.classList.remove("hidden");
+    } else if (classIsClosed) {
+      banner.textContent = `Kelas ${selectedClass} ditandakan TUTUP. Pilih tarikh relief (Isnin–Jumaat) untuk lihat hari berkenaan.`;
+      banner.classList.remove("hidden");
+    } else {
+      banner.textContent = "";
+      banner.classList.add("hidden");
+    }
+  }
   const map = classSchedules[selectedClass] || {};
   const thead = document.createElement("thead");
   thead.appendChild(buildTimeHeaderRow());
@@ -1126,11 +1176,24 @@ function buildClassTable() {
     th.className = "day-col";
     th.textContent = day;
     tr.appendChild(th);
+    const dayClosed = classIsClosed && reliefDay && day === reliefDay;
     TIMES.forEach((time) => {
       const td = document.createElement("td");
       td.className = "slot-cell";
       const v = map[`${day}|${time}`] || "";
-      if (v.includes("|")) {
+      if (dayClosed) {
+        td.classList.add("slot-class-closed");
+        const tag = document.createElement("div");
+        tag.className = "closed-tag";
+        tag.textContent = v ? "TUTUP" : "-";
+        td.appendChild(tag);
+        if (v.includes("|")) {
+          const [subj, teacher] = v.split("|");
+          const s = document.createElement("div"); s.className = "subjek muted"; s.textContent = subj;
+          const k = document.createElement("div"); k.className = "kelas muted"; k.textContent = teacher;
+          td.appendChild(s); td.appendChild(k);
+        }
+      } else if (v.includes("|")) {
         const [subj, teacher] = v.split("|");
         const s = document.createElement("div"); s.className = "subjek"; s.textContent = subj;
         const k = document.createElement("div"); k.className = "kelas"; k.textContent = teacher;
@@ -1349,43 +1412,58 @@ function buildReliefTeacherTable() {
       td.className = "slot-cell";
       const val = map[k] || "";
       if (val) {
-        allBusySlots.push(k);
         const parts = val.split("|");
         const sub = parts[0] || "";
         const cls = parts[1] || "";
-        slotSubjectMap[k] = sub.trim().toUpperCase();
-        const assignee = reliefAssignments[`${focusAbsentTeacher}|${k}`] || "";
+        const slotClosed = isAbsentTeacherSlotClosed(focusAbsentTeacher, day, time);
 
-        const sDiv = document.createElement("div"); sDiv.className = "subjek"; sDiv.textContent = sub;
-        const cDiv = document.createElement("div"); cDiv.className = "kelas"; cDiv.textContent = cls;
-        const hDiv = document.createElement("div"); hDiv.className = "hint";
-        hDiv.textContent = assignee ? `Relief: ${assignee}` : "Klik untuk assign";
-        td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
+        if (slotClosed) {
+          td.classList.add("slot-class-closed");
+          const tag = document.createElement("div");
+          tag.className = "closed-tag";
+          tag.textContent = "TUTUP";
+          const sDiv = document.createElement("div"); sDiv.className = "subjek muted"; sDiv.textContent = sub;
+          const cDiv = document.createElement("div"); cDiv.className = "kelas muted"; cDiv.textContent = cls;
+          const hDiv = document.createElement("div"); hDiv.className = "hint";
+          hDiv.textContent = "Kelas ditutup — tiada relief";
+          td.appendChild(tag); td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
+          td.setAttribute("aria-label", `${day} ${time} ${sub} ${cls} kelas tutup`);
+        } else {
+          allBusySlots.push(k);
+          slotSubjectMap[k] = sub.trim().toUpperCase();
+          const assignee = reliefAssignments[`${focusAbsentTeacher}|${k}`] || "";
 
-        if (assignee) {
-          td.classList.add("assigned");
-          const badge = document.createElement("span"); badge.className = "relief-badge"; badge.textContent = "✓";
-          td.appendChild(badge);
+          const sDiv = document.createElement("div"); sDiv.className = "subjek"; sDiv.textContent = sub;
+          const cDiv = document.createElement("div"); cDiv.className = "kelas"; cDiv.textContent = cls;
+          const hDiv = document.createElement("div"); hDiv.className = "hint";
+          hDiv.textContent = assignee ? `Relief: ${assignee}` : "Klik untuk assign";
+          td.appendChild(sDiv); td.appendChild(cDiv); td.appendChild(hDiv);
+
+          if (assignee) {
+            td.classList.add("assigned");
+            const badge = document.createElement("span"); badge.className = "relief-badge"; badge.textContent = "✓";
+            td.appendChild(badge);
+          }
+
+          td.dataset.dropkey = k;
+          td.addEventListener("dragover", (e) => e.preventDefault());
+          td.addEventListener("drop", (e) => {
+            if (isReliefPlanApproved) return;
+            e.preventDefault();
+            const tName = e.dataTransfer.getData("text/plain")?.trim();
+            if (!tName || !getAllTeachers().includes(tName)) return;
+            assignReliefSlot(`${focusAbsentTeacher}|${k}`, tName);
+          });
+          td.addEventListener("click", () => {
+            if (isReliefPlanApproved) return;
+            focusSlotKey = k;
+            openAssignModal(k);
+          });
+          td.setAttribute("tabindex", "0");
+          td.setAttribute("role", "button");
+          td.setAttribute("aria-label", `${day} ${time} ${sub} ${cls} ${assignee ? "Relief: " + assignee : "Belum assign"}`);
+          td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); td.click(); } });
         }
-
-        td.dataset.dropkey = k;
-        td.addEventListener("dragover", (e) => e.preventDefault());
-        td.addEventListener("drop", (e) => {
-          if (isReliefPlanApproved) return;
-          e.preventDefault();
-          const tName = e.dataTransfer.getData("text/plain")?.trim();
-          if (!tName || !getAllTeachers().includes(tName)) return;
-          assignReliefSlot(`${focusAbsentTeacher}|${k}`, tName);
-        });
-        td.addEventListener("click", () => {
-          if (isReliefPlanApproved) return;
-          focusSlotKey = k;
-          openAssignModal(k);
-        });
-        td.setAttribute("tabindex", "0");
-        td.setAttribute("role", "button");
-        td.setAttribute("aria-label", `${day} ${time} ${sub} ${cls} ${assignee ? "Relief: " + assignee : "Belum assign"}`);
-        td.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); td.click(); } });
       }
       tr.appendChild(td);
     });
@@ -1602,6 +1680,7 @@ function renderReliefUi() {
   renderReliefStats();
   renderClosedClassesUi();
   buildMainTable();
+  buildClassTable();
 }
 
 function renderFinalReliefPlan() {
@@ -1712,6 +1791,7 @@ function renderClosedClassesUi() {
       if (isReliefPlanApproved) return;
       closedClasses.delete(cls);
       autosaveReliefPlan();
+      renderClosedClassOptions();
       renderClosedClassesUi();
       renderReliefUi();
     });
@@ -1742,11 +1822,14 @@ function addClosedClass() {
   if (isReliefPlanApproved) return;
   const sel = document.getElementById("closedClassSelect");
   if (!sel || !sel.value) return;
-  closedClasses.add(sel.value);
+  const cls = sel.value;
+  closedClasses.add(cls);
+  clearReliefAssignmentsForClosedClass(cls);
   autosaveReliefPlan();
+  renderClosedClassOptions();
   renderClosedClassesUi();
   renderReliefUi();
-  showToast(`Kelas ${sel.value} ditutup.`);
+  showToast(`Kelas ${cls} ditutup — slot relief untuk kelas ini dibatalkan.`);
 }
 
 function renderClosedClassOptions() {
@@ -1757,12 +1840,14 @@ function renderClosedClassOptions() {
   opt0.value = "";
   opt0.textContent = "-- Pilih kelas --";
   sel.appendChild(opt0);
-  getAllClasses().forEach((cls) => {
-    const o = document.createElement("option");
-    o.value = cls;
-    o.textContent = cls;
-    sel.appendChild(o);
-  });
+  getAllClasses()
+    .filter((cls) => !closedClasses.has(cls))
+    .forEach((cls) => {
+      const o = document.createElement("option");
+      o.value = cls;
+      o.textContent = cls;
+      sel.appendChild(o);
+    });
 }
 
 

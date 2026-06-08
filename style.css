@@ -705,6 +705,37 @@ code {
   font-size: 0.85rem;
   font-weight: 600;
 }
+.class-closed-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.slot-class-closed {
+  background: repeating-linear-gradient(
+    -45deg,
+    #fff7ed,
+    #fff7ed 6px,
+    #ffedd5 6px,
+    #ffedd5 12px
+  ) !important;
+  border-color: #fdba74 !important;
+}
+.slot-class-closed .closed-tag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #c2410c;
+  margin-bottom: 4px;
+}
+.slot-class-closed .muted {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
 
 .ineligible-box {
   margin-top: 8px;
