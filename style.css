@@ -744,6 +744,8 @@ code {
   border: 0;
 }
 .upload-label-btn { position: relative; cursor: pointer; }
+.ai-status { font-size: 0.85rem; color: var(--color-muted-foreground); font-weight: 500; }
+.ai-status.busy { color: var(--color-primary); }
 .bertugas-view-hidden { display: none !important; }
 .bertugas-ref-empty-hidden { display: none; }
 

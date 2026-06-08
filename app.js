@@ -13,7 +13,8 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 BertugasAuto";
+const BUILD_ID = "Build 2026-06-08 GroqAI";
+const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");
@@ -109,7 +110,9 @@ const KEYS = {
   absentReasons: "jadual-v1-absent-reasons",
   absentRanges: "jadual-v1-absent-ranges",
   bertugasWeek: "jadual-v1-bertugas-week",
-  bertugasView: "jadual-v2-bertugas-view"
+  bertugasView: "jadual-v2-bertugas-view",
+  groqApiKey: "jadual-v2-groq-api-key",
+  autoParseBertugas: "jadual-v2-auto-parse-bertugas"
 };
 
 // ─── Utility: Safe text (XSS protection) ────────────────────
@@ -1889,6 +1892,144 @@ async function handleUploadJadual(e) {
   showToast("Fail rujukan jadual diupload.");
 }
 
+function getGroqApiKey() {
+  return localStorage.getItem(KEYS.groqApiKey) || "";
+}
+
+function isAutoParseBertugasEnabled() {
+  const saved = localStorage.getItem(KEYS.autoParseBertugas);
+  return saved !== "0";
+}
+
+function renderGroqKeyStatus() {
+  const el = document.getElementById("groqKeyStatus");
+  const input = document.getElementById("groqApiKeyInput");
+  const key = getGroqApiKey();
+  if (input && !input.value && key) input.value = key;
+  setText(el, key ? "API key disimpan." : "Belum set API key.");
+}
+
+function saveGroqApiKey() {
+  const input = document.getElementById("groqApiKeyInput");
+  const key = (input?.value || "").trim();
+  if (!key) {
+    showToast("Masukkan Groq API key dulu.");
+    return;
+  }
+  localStorage.setItem(KEYS.groqApiKey, key);
+  renderGroqKeyStatus();
+  showToast("Groq API key disimpan.");
+}
+
+async function compressForGroq(dataUrl) {
+  let url = dataUrl;
+  for (const q of [0.8, 0.65, 0.5, 0.35]) {
+    url = await compressDataUrl(url, 1100, q);
+    if (url.length < 3_400_000) return url;
+  }
+  return url;
+}
+
+function getTeacherNameList() {
+  return Object.keys(guruSchedules || {}).sort();
+}
+
+function normalizeBertugasKey(key) {
+  if (!key || typeof key !== "string") return null;
+  const parts = key.split("|");
+  if (parts.length !== 2) return null;
+  const day = parts[0].trim().toUpperCase();
+  const row = parts[1].trim().toUpperCase();
+  if (day === "ALL" && BERTUGAS_FOOTER_ROWS.includes(row)) return `ALL|${row}`;
+  if (!DAYS.includes(day)) return null;
+  if (BERTUGAS_ROWS.includes(row)) return `${day}|${row}`;
+  return null;
+}
+
+function applyParsedBertugas(parsed) {
+  const assignments = parsed?.assignments || {};
+  let count = 0;
+  for (const [rawKey, rawVal] of Object.entries(assignments)) {
+    const key = normalizeBertugasKey(rawKey);
+    if (!key) continue;
+    const val = String(rawVal || "").trim().toUpperCase();
+    if (val) {
+      bertugasMap[key] = val;
+      count++;
+    }
+  }
+  if (parsed?.weekStart) {
+    const d = new Date(parsed.weekStart);
+    if (!Number.isNaN(d.getTime())) {
+      bertugasWeekDate = d.toISOString().slice(0, 10);
+      localStorage.setItem(KEYS.bertugasWeek, bertugasWeekDate);
+      const weekInput = document.getElementById("bertugasWeekInput");
+      if (weekInput) weekInput.value = bertugasWeekDate;
+    }
+  }
+  saveBertugasMap();
+  buildBertugasTable();
+  buildBertugasEditor();
+  return count;
+}
+
+function setAiParseStatus(text, busy = false) {
+  const el = document.getElementById("aiParseStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.classList.toggle("busy", busy);
+}
+
+async function parseBertugasFromImage(dataUrl) {
+  const apiKey = getGroqApiKey();
+  if (!apiKey) {
+    showToast("Set Groq API key di Admin dulu.");
+    return false;
+  }
+  if (!dataUrl || !(dataUrl.startsWith("data:image"))) {
+    showToast("AI baca perlukan fail JPEG/PNG.");
+    return false;
+  }
+
+  setAiParseStatus("AI sedang baca gambar...", true);
+  const imageDataUrl = await compressForGroq(dataUrl);
+
+  try {
+    const res = await fetch(GROQ_PROXY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        apiKey,
+        imageDataUrl,
+        teacherNames: getTeacherNameList()
+      })
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `Ralat ${res.status}`);
+
+    const count = applyParsedBertugas(body.data);
+    setBertugasViewMode("digital");
+    activateTab("bertugas");
+    setAiParseStatus(`${count} slot diisi oleh AI.`);
+    showToast(`AI selesai — ${count} nama masuk jadual digital. Semak & betulkan jika perlu.`);
+    return true;
+  } catch (err) {
+    setAiParseStatus("");
+    showToast(`AI gagal: ${err.message}`);
+    return false;
+  }
+}
+
+async function aiParseLatestBertugasImage() {
+  const list = loadBertugasFiles();
+  const image = list.find((f) => (f.type || "").startsWith("image/") || (f.dataUrl || "").startsWith("data:image"));
+  if (!image?.dataUrl) {
+    showToast("Upload gambar JPEG dulu.");
+    return;
+  }
+  await parseBertugasFromImage(image.dataUrl);
+}
+
 async function processBertugasUpload(files, inputEl) {
   if (!files.length) return false;
   const out = [];
@@ -1903,6 +2044,14 @@ async function processBertugasUpload(files, inputEl) {
   activateTab("bertugas");
   setBertugasViewMode("ref");
   showToast(`${files.length} gambar jadual bertugas dimuat naik.`);
+
+  const firstImage = out.find((f) => (f.type || "").startsWith("image/"));
+  if (firstImage && isAutoParseBertugasEnabled() && getGroqApiKey()) {
+    await parseBertugasFromImage(firstImage.dataUrl);
+  } else if (firstImage && isAutoParseBertugasEnabled() && !getGroqApiKey()) {
+    showToast("Tip: set Groq API key di Admin untuk auto susun jadual dari gambar.");
+  }
+
   if (inputEl) inputEl.value = "";
   return true;
 }
@@ -2027,6 +2176,18 @@ function init() {
   if (uploadBertugasTab) uploadBertugasTab.addEventListener("change", handleUploadBertugas);
   document.getElementById("uploadGuruJson").addEventListener("change", handleUploadGuruJson);
 
+  const saveGroqKeyBtn = document.getElementById("saveGroqKeyBtn");
+  if (saveGroqKeyBtn) saveGroqKeyBtn.addEventListener("click", saveGroqApiKey);
+  const autoParseBox = document.getElementById("autoParseBertugas");
+  if (autoParseBox) {
+    autoParseBox.checked = isAutoParseBertugasEnabled();
+    autoParseBox.addEventListener("change", (e) => {
+      localStorage.setItem(KEYS.autoParseBertugas, e.target.checked ? "1" : "0");
+    });
+  }
+  const aiParseBtn = document.getElementById("aiParseBertugasBtn");
+  if (aiParseBtn) aiParseBtn.addEventListener("click", aiParseLatestBertugasImage);
+
   // Available slot select
   document.getElementById("availableSlotSelect").addEventListener("change", (e) => {
     focusSlotKey = e.target.value;
@@ -2148,6 +2309,7 @@ function init() {
   buildBertugasTable();
   buildBertugasEditor();
   renderUploadInfo();
+  renderGroqKeyStatus();
   setBertugasViewMode(getBertugasViewMode());
 }
 
