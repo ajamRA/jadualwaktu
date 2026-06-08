@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08";
+const BUILD_ID = "Build 2026-06-08 UI";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");
@@ -1407,16 +1407,17 @@ function renderClashWarning() {
   });
   Object.values(bySlotTeacher).forEach((n) => { if (n > 1) duplicateClashes++; });
   const total = duplicateClashes + scheduleClashes;
+  box.classList.remove("clash-ok", "clash-bad");
   if (!total) {
-    box.textContent = "✓ Tiada konflik dikesan.";
-    box.style.color = "var(--success)";
+    box.textContent = "✓ Tiada konflik";
+    box.classList.add("clash-ok");
     return;
   }
   const parts = [];
-  if (duplicateClashes) parts.push(`${duplicateClashes} guru double-booked`);
-  if (scheduleClashes) parts.push(`${scheduleClashes} guru ada kelas sendiri`);
-  box.textContent = `⚠️ Clash: ${parts.join(", ")}.`;
-  box.style.color = "var(--danger)";
+  if (duplicateClashes) parts.push(`${duplicateClashes} double-booked`);
+  if (scheduleClashes) parts.push(`${scheduleClashes} ada kelas sendiri`);
+  box.textContent = `⚠ ${parts.join(" · ")}`;
+  box.classList.add("clash-bad");
 }
 
 function renderReliefStats() {
@@ -2014,7 +2015,7 @@ function init() {
 }
 
 // ─── Bootstrap: fetch guru-schedules.json then init ──────────
-fetch("./guru-schedules.json?v=20260608")
+fetch("./guru-schedules.json?v=20260608ui")
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => {
     if (data && data.teachers) {
