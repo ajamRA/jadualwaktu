@@ -324,10 +324,12 @@ body {
 
 .relief-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   max-width: 100%;
+  overflow: hidden;
+  isolation: isolate;
 }
 .relief-sidebar,
 .relief-main {
@@ -335,6 +337,12 @@ body {
   gap: 0;
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
+}
+.relief-main > .card,
+.relief-output-grid > .card {
+  min-width: 0;
+  overflow: hidden;
 }
 .relief-sidebar .relief-grid {
   grid-template-columns: 1fr;
@@ -493,6 +501,8 @@ code {
 }
 .table-wrap-contained {
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   overscroll-behavior-x: contain;
 }
 .table-scroll-hint {
@@ -502,7 +512,16 @@ code {
   font-size: 0.78rem;
 }
 .jadual { border-collapse: collapse; width: 100%; min-width: 1080px; }
-.jadual-relief { min-width: 640px; }
+.jadual-relief {
+  min-width: 640px;
+  width: max-content;
+  max-width: none;
+}
+.jadual-relief thead th {
+  white-space: nowrap;
+  font-size: 0.78rem;
+  padding: 8px 4px;
+}
 .chip-row-contained {
   max-width: 100%;
   overflow-x: auto;
@@ -665,6 +684,19 @@ code {
   border-radius: var(--radius-sm);
   padding: 8px;
   background: rgba(255, 255, 255, 0.5);
+}
+.relief-sidebar .absent-summary-row {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+.relief-sidebar .absent-summary-name {
+  grid-column: 1 / -1;
+}
+.relief-sidebar .absent-until-field {
+  grid-column: 1 / -1;
+}
+.relief-sidebar .absent-range-note {
+  grid-column: 1 / -1;
 }
 .absent-summary-name {
   border: 0; background: transparent;
@@ -997,10 +1029,14 @@ code {
 }
 
 /* ─── Responsive ─── */
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .relief-layout { grid-template-columns: 1fr; }
   .relief-output-grid { grid-template-columns: 1fr; }
   .relief-sidebar .relief-grid { grid-template-columns: 1fr 1fr; }
+  .relief-sidebar,
+  .relief-main { overflow: visible; }
+  .relief-main > .card,
+  .relief-output-grid > .card { overflow: visible; }
 }
 
 @media (max-width: 900px) {

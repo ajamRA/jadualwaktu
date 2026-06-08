@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 PetangSession";
+const BUILD_ID = "Build 2026-06-08 LayoutFix";
 const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
