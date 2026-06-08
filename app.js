@@ -9,9 +9,11 @@
    - Relief statistics dashboard
    - Export/import data
    - Better accessibility
+   - Audit fixes (2026-06-08): drag-drop validation, score sync,
+     day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-05-15";
+const BUILD_ID = "Build 2026-06-08";
 document.title = `${document.title} | ${BUILD_ID}`;
 
 // ─── Constants ───────────────────────────────────────────────
@@ -100,6 +102,7 @@ const KEYS = {
   reliefRules: "jadual-v1-relief-rules",
   reliefPlans: "jadual-v1-relief-plans",
   absentReasons: "jadual-v1-absent-reasons",
+  absentRanges: "jadual-v1-absent-ranges",
   bertugasWeek: "jadual-v1-bertugas-week"
 };
 
@@ -166,8 +169,10 @@ let isReliefPlanApproved = false;
 let undoStack = [];
 let redoStack = [];
 let absentReasons = loadAbsentReasons();
+let absentRanges = loadAbsentRanges();
 let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
 let closedClasses = new Set(); // Format: "KELAS_NAME" — kelas yang ditutup hari ini
+let autosaveTimer = null;
 
 // ─── Load/Save Functions ─────────────────────────────────────
 function loadScheduleMap() {
@@ -208,6 +213,11 @@ function loadAbsentReasons() {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { return {}; }
 }
+function loadAbsentRanges() {
+  const raw = localStorage.getItem(KEYS.absentRanges);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
 
 function saveScheduleMap() { localStorage.setItem(KEYS.jadual, JSON.stringify(scheduleMap)); }
 function saveRelief() { localStorage.setItem(KEYS.relief, JSON.stringify([...reliefSet])); }
@@ -217,27 +227,42 @@ function saveReliefScore() { localStorage.setItem(KEYS.reliefScore, JSON.stringi
 function saveReliefRules() { localStorage.setItem(KEYS.reliefRules, JSON.stringify(reliefRules)); }
 function saveReliefPlans() { localStorage.setItem(KEYS.reliefPlans, JSON.stringify(reliefPlans)); }
 function saveAbsentReasons() { localStorage.setItem(KEYS.absentReasons, JSON.stringify(absentReasons)); }
+function saveAbsentRanges() { localStorage.setItem(KEYS.absentRanges, JSON.stringify(absentRanges)); }
 
 // ─── Undo/Redo ───────────────────────────────────────────────
-function snapshotAssignments() { return JSON.stringify(reliefAssignments); }
+function snapshotReliefState() {
+  return JSON.stringify({ assignments: reliefAssignments, scores: { ...reliefScore } });
+}
 function pushUndoState() {
-  undoStack.push(snapshotAssignments());
+  undoStack.push(snapshotReliefState());
   if (undoStack.length > 200) undoStack.shift();
   redoStack = [];
 }
 function restoreFromSnapshot(s) {
-  try { reliefAssignments = JSON.parse(s) || {}; } catch { reliefAssignments = {}; }
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === "object" && parsed.assignments) {
+      reliefAssignments = parsed.assignments || {};
+      Object.keys(reliefScore).forEach((k) => delete reliefScore[k]);
+      Object.assign(reliefScore, parsed.scores || {});
+      saveReliefScore();
+      return;
+    }
+    reliefAssignments = parsed || {};
+  } catch { reliefAssignments = {}; }
 }
 function undoRelief() {
   if (isReliefPlanApproved || !undoStack.length) return;
-  redoStack.push(snapshotAssignments());
+  redoStack.push(snapshotReliefState());
   restoreFromSnapshot(undoStack.pop());
+  autosaveReliefPlan();
   renderReliefUi();
 }
 function redoRelief() {
   if (isReliefPlanApproved || !redoStack.length) return;
-  undoStack.push(snapshotAssignments());
+  undoStack.push(snapshotReliefState());
   restoreFromSnapshot(redoStack.pop());
+  autosaveReliefPlan();
   renderReliefUi();
 }
 
@@ -245,13 +270,40 @@ function redoRelief() {
 // ─── Relief Plan Management ──────────────────────────────────
 function setReliefStatus(text) { setText(document.getElementById("reliefPlanStatus"), text); }
 
+function getDefaultAbsentRange() {
+  const date = currentReliefDate || todayIso();
+  return { start: date, end: date };
+}
+
+function ensureAbsentRange(name, resetWhenOutside = false) {
+  const fallback = getDefaultAbsentRange();
+  const current = absentRanges[name] || {};
+  let start = current.start || fallback.start;
+  let end = current.end || start;
+  if (resetWhenOutside && fallback.start && (fallback.start < start || fallback.start > end)) {
+    start = fallback.start;
+    end = fallback.start;
+  }
+  absentRanges[name] = { start, end };
+  return absentRanges[name];
+}
+
+function getCurrentAbsentRanges() {
+  const out = {};
+  [...absentTeachers].forEach((name) => { out[name] = ensureAbsentRange(name); });
+  return out;
+}
+
 function getCurrentPlanPayload() {
-  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], approved: isReliefPlanApproved, rules: reliefRules, closedClasses: [...closedClasses] };
+  return { assignments: reliefAssignments, absentTeachers: [...absentTeachers], absentRanges: getCurrentAbsentRanges(), approved: isReliefPlanApproved, rules: reliefRules, closedClasses: [...closedClasses] };
 }
 function applyPlanPayload(plan) {
   reliefAssignments = { ...(plan.assignments || {}) };
   absentTeachers.clear();
   (plan.absentTeachers || []).forEach((x) => absentTeachers.add(x));
+  if (plan.absentRanges) absentRanges = { ...absentRanges, ...plan.absentRanges };
+  [...absentTeachers].forEach((name) => ensureAbsentRange(name));
+  saveAbsentRanges();
   closedClasses = new Set(plan.closedClasses || []);
   isReliefPlanApproved = !!plan.approved;
   if (plan.rules) reliefRules = plan.rules;
@@ -271,11 +323,18 @@ function loadPlanByDate(dateStr) {
 function saveCurrentPlan() {
   if (!currentReliefDate) currentReliefDate = todayIso();
   reliefPlans[currentReliefDate] = getCurrentPlanPayload();
+  saveAbsentRanges();
   saveReliefPlans();
   setReliefStatus(`Status: ${isReliefPlanApproved ? "Approved (Locked)" : "Draft"} | Saved ${currentReliefDate}`);
   showToast("Plan disimpan.");
 }
-function approveCurrentPlan() { isReliefPlanApproved = true; saveCurrentPlan(); renderReliefUi(); showToast("Plan approved & locked."); }
+function approveCurrentPlan() {
+  if (!confirm("Approve & lock plan ini? Semua edit akan dibekukan sehingga Unlock.")) return;
+  isReliefPlanApproved = true;
+  saveCurrentPlan();
+  renderReliefUi();
+  showToast("Plan approved & locked.");
+}
 function unlockCurrentPlan() { isReliefPlanApproved = false; saveCurrentPlan(); setReliefStatus("Status: Draft (Unlocked)"); renderReliefUi(); showToast("Plan unlocked."); }
 
 // ─── Helper: Get all teachers ────────────────────────────────
@@ -288,6 +347,48 @@ function getReliefDay() {
   const dayIdx = d.getDay(); // 0=Sun, 1=Mon...
   const map = { 1: "ISNIN", 2: "SELASA", 3: "RABU", 4: "KHAMIS", 5: "JUMAAT" };
   return map[dayIdx] || "";
+}
+
+function isTeacherAbsentOnDate(name, dateStr) {
+  const date = dateStr || currentReliefDate || todayIso();
+  const range = ensureAbsentRange(name);
+  const start = range.start || date;
+  const end = range.end || start;
+  return date >= start && date <= end;
+}
+
+function getAbsentTeachersForCurrentDate() {
+  return [...absentTeachers].filter((name) => isTeacherAbsentOnDate(name));
+}
+
+function getReliefAssignmentRows(filterByCurrentDay = true) {
+  const reliefDay = filterByCurrentDay ? getReliefDay() : "";
+  return Object.entries(reliefAssignments)
+    .map(([k, assignee]) => {
+      const parts = k.split("|");
+      return { key: k, absent: parts[0], day: parts[1], time: parts[2], assignee };
+    })
+    .filter((r) => r.assignee && r.day && r.time)
+    .filter((r) => !reliefDay || r.day === reliefDay)
+    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+}
+
+function adjustReliefScore(name, delta) {
+  if (!name || !delta) return;
+  const next = (Number(reliefScore[name]) || 0) + delta;
+  if (next <= 0) delete reliefScore[name];
+  else reliefScore[name] = next;
+}
+
+function autosaveReliefPlan() {
+  if (isReliefPlanApproved || !currentReliefDate) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    reliefPlans[currentReliefDate] = getCurrentPlanPayload();
+    saveAbsentRanges();
+    saveReliefPlans();
+    setReliefStatus(`Status: Draft | Autosaved ${currentReliefDate}`);
+  }, 400);
 }
 
 // ─── Helper: Get all classes from guru schedules ─────────────
@@ -371,17 +472,6 @@ function getTeacherSlotsOnDay(teacher, day) {
   return slots;
 }
 
-function hasNoBreakOnDay(teacher, day) {
-  const slots = getTeacherSlotsOnDay(teacher, day);
-  if (slots.length < 3) return false;
-  const min = Math.min(...slots);
-  const max = Math.max(...slots);
-  for (let i = min; i <= max; i++) {
-    if (!(guruSchedules[teacher] || {})[`${day}|${TIMES[i]}`]) return false;
-  }
-  return (max - min + 1) >= TIMES.length - 1;
-}
-
 function wouldLoseAllBreaks(teacher, day, newSlotTime) {
   const map = guruSchedules[teacher] || {};
   const occupied = new Set();
@@ -428,6 +518,70 @@ function getEligibleTeachers(day, time, excludeSet) {
     .filter((t) => !wouldLoseAllBreaks(t, day, time));
 }
 
+function getIneligibilityReason(teacher, day, time, excludeSet) {
+  if (excludeSet.has(teacher)) return `${teacher}: dalam senarai tak hadir.`;
+  const hasClass = !!(guruSchedules[teacher] || {})[`${day}|${time}`];
+  if (hasClass) {
+    const val = (guruSchedules[teacher] || {})[`${day}|${time}`] || "";
+    const cls = val.split("|")[1] || "";
+    const freedByClass = getTeachersFreedByClosedClasses(day);
+    if (!(freedByClass.has(teacher) && closedClasses.has(cls))) {
+      return `${teacher}: ada kelas${cls ? ` (${cls})` : ""} pada ${time}.`;
+    }
+  }
+  if (isTeacherOnDutyAtSlot(teacher, day, time)) return `${teacher}: sedang bertugas pada ${time}.`;
+  if (isBlockedByRule(teacher, day, time)) return `${teacher}: diblock oleh tetapan relief.`;
+  const dailyCounts = getAssignedCountByTeacherDay();
+  const maxPerDay = Number(reliefRules.maxPerDay || 2);
+  if ((dailyCounts[`${teacher}|${day}`] || 0) >= maxPerDay) return `${teacher}: dah capai max ${maxPerDay} relief/hari.`;
+  if (wouldLoseAllBreaks(teacher, day, time)) return `${teacher}: akan hilang semua rehat.`;
+  return `${teacher} tak available untuk slot ini.`;
+}
+
+function applyReliefAssignment(assignKey, teacherName, options = {}) {
+  const { validate = true } = options;
+  const parts = assignKey.split("|");
+  if (parts.length < 3 || !teacherName) return false;
+  const [, day, time] = parts;
+  const excludeSet = new Set([...absentTeachers]);
+  if (validate && !getEligibleTeachers(day, time, excludeSet).includes(teacherName)) return false;
+  const prev = reliefAssignments[assignKey];
+  if (prev === teacherName) return true;
+  if (prev) adjustReliefScore(prev, -1);
+  reliefAssignments[assignKey] = teacherName;
+  adjustReliefScore(teacherName, 1);
+  return true;
+}
+
+function assignReliefSlot(assignKey, teacherName, options = {}) {
+  const { skipUndo = false, silent = false } = options;
+  const parts = assignKey.split("|");
+  if (parts.length < 3 || !teacherName) return false;
+  const [, day, time] = parts;
+  const excludeSet = new Set([...absentTeachers]);
+  if (!getEligibleTeachers(day, time, excludeSet).includes(teacherName)) {
+    if (!silent) showToast(getIneligibilityReason(teacherName, day, time, excludeSet));
+    return false;
+  }
+  if (!skipUndo) pushUndoState();
+  applyReliefAssignment(assignKey, teacherName, { validate: false });
+  saveReliefScore();
+  autosaveReliefPlan();
+  if (!silent) renderReliefUi();
+  return true;
+}
+
+function clearReliefSlot(assignKey, options = {}) {
+  const { skipUndo = false } = options;
+  const prev = reliefAssignments[assignKey];
+  if (!prev) return;
+  if (!skipUndo) pushUndoState();
+  delete reliefAssignments[assignKey];
+  adjustReliefScore(prev, -1);
+  saveReliefScore();
+  autosaveReliefPlan();
+}
+
 function getSubjectTeachersMap() {
   const out = {};
   Object.entries(guruSchedules).forEach(([teacher, map]) => {
@@ -454,14 +608,17 @@ function rankByScore(teachers) {
 // Only assigns for the selected relief day
 function autoAssignGreedy() {
   if (isReliefPlanApproved) return;
-  if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  const absent = getAbsentTeachersForCurrentDate();
+  if (!absent.length) {
+    showToast(absentTeachers.size ? "Tiada guru ditanda tak hadir pada tarikh ini." : "Pilih guru tak hadir dulu.");
+    return;
+  }
   const reliefDay = getReliefDay();
   if (!reliefDay) { showToast("Tarikh yang dipilih bukan hari sekolah."); return; }
   pushUndoState();
   const subjectMap = getSubjectTeachersMap();
   let assigned = 0;
   let skipped = 0;
-  const absent = [...absentTeachers];
 
   absent.forEach((absentName) => {
     const map = guruSchedules[absentName] || {};
@@ -479,9 +636,7 @@ function autoAssignGreedy() {
       const pool = sameSubj.length ? sameSubj : eligible;
       const ranked = rankByScore(pool);
       if (ranked.length) {
-        const chosen = ranked[0].name;
-        reliefAssignments[assignKey] = chosen;
-        reliefScore[chosen] = (Number(reliefScore[chosen]) || 0) + 1;
+        applyReliefAssignment(assignKey, ranked[0].name, { validate: false });
         assigned++;
       } else {
         skipped++;
@@ -490,6 +645,7 @@ function autoAssignGreedy() {
   });
 
   saveReliefScore();
+  autosaveReliefPlan();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
   if (log) log.textContent = `Auto-assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
@@ -500,12 +656,15 @@ function autoAssignGreedy() {
 // Only assigns for the selected relief day
 function autoAssignSmart() {
   if (isReliefPlanApproved) return;
-  if (!absentTeachers.size) { showToast("Pilih guru tak hadir dulu."); return; }
+  const absent = getAbsentTeachersForCurrentDate();
+  if (!absent.length) {
+    showToast(absentTeachers.size ? "Tiada guru ditanda tak hadir pada tarikh ini." : "Pilih guru tak hadir dulu.");
+    return;
+  }
   const reliefDay = getReliefDay();
   if (!reliefDay) { showToast("Tarikh yang dipilih bukan hari sekolah."); return; }
   pushUndoState();
   const subjectMap = getSubjectTeachersMap();
-  const absent = [...absentTeachers];
 
   // Collect all unassigned slots FOR TODAY ONLY
   const slots = [];
@@ -522,36 +681,25 @@ function autoAssignSmart() {
     });
   });
 
-  // Sort slots by number of eligible teachers (most constrained first)
   const excludeSet = new Set(absent);
-  slots.forEach((s) => {
-    s.eligible = getEligibleTeachers(s.day, s.time, excludeSet);
-    s.sameSubj = s.eligible.filter((t) => subjectMap[s.subject] && subjectMap[s.subject].has(t));
-  });
-  slots.sort((a, b) => a.eligible.length - b.eligible.length);
-
-  // Track daily assignments for this run
-  const dailyCount = {};
-  const maxPerDay = Number(reliefRules.maxPerDay || 2);
   let assigned = 0;
   let skipped = 0;
 
-  // Greedy with constraint propagation
-  for (const slot of slots) {
-    const pool = slot.sameSubj.length ? slot.sameSubj : slot.eligible;
-    const candidates = pool.filter((t) => {
-      const key = `${t}|${slot.day}`;
-      return (dailyCount[key] || 0) < maxPerDay;
+  while (slots.length) {
+    slots.forEach((s) => {
+      s.eligible = getEligibleTeachers(s.day, s.time, excludeSet);
+      s.sameSubj = s.eligible.filter((t) => subjectMap[s.subject] && subjectMap[s.subject].has(t));
     });
-    const ranked = rankByScore(candidates);
+    slots.sort((a, b) => a.eligible.length - b.eligible.length || a.assignKey.localeCompare(b.assignKey));
+
+    const slot = slots.shift();
+    const pool = slot.sameSubj.length ? slot.sameSubj : slot.eligible;
+    const ranked = rankByScore(pool);
     if (ranked.length) {
       const minScore = ranked[0].score;
       const tier = ranked.filter((r) => r.score === minScore);
       const chosen = tier[Math.floor(Math.random() * tier.length)].name;
-      reliefAssignments[slot.assignKey] = chosen;
-      reliefScore[chosen] = (Number(reliefScore[chosen]) || 0) + 1;
-      const dKey = `${chosen}|${slot.day}`;
-      dailyCount[dKey] = (dailyCount[dKey] || 0) + 1;
+      applyReliefAssignment(slot.assignKey, chosen, { validate: false });
       assigned++;
     } else {
       skipped++;
@@ -559,6 +707,7 @@ function autoAssignSmart() {
   }
 
   saveReliefScore();
+  autosaveReliefPlan();
   renderReliefUi();
   const log = document.getElementById("autoAssignLog");
   if (log) log.textContent = `Smart assign (${reliefDay}): ${assigned} slot diisi, ${skipped} slot tiada guru available.`;
@@ -779,6 +928,8 @@ function buildClassTable() {
 function addAbsentTeacher(name) {
   if (isReliefPlanApproved || !name) return;
   absentTeachers.add(name);
+  ensureAbsentRange(name, true);
+  saveAbsentRanges();
   if (!focusAbsentTeacher) focusAbsentTeacher = name;
   renderReliefUi();
 }
@@ -856,6 +1007,81 @@ function renderAbsentList() {
   });
 }
 
+function updateAbsentRange(name, field, value) {
+  if (isReliefPlanApproved || !name) return;
+  const range = ensureAbsentRange(name);
+  const next = { ...range, [field]: value || range[field] };
+  if (next.start && next.end && next.end < next.start) {
+    if (field === "start") next.end = next.start;
+    else next.start = next.end;
+  }
+  absentRanges[name] = next;
+  saveAbsentRanges();
+  renderAbsentSummary();
+}
+
+function renderAbsentSummary() {
+  const wrap = document.getElementById("absentSummaryList");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const names = [...absentTeachers].sort();
+  if (!names.length) {
+    const empty = document.createElement("div");
+    empty.className = "hint";
+    empty.textContent = "Belum ada guru ditanda tidak hadir.";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  names.forEach((name) => {
+    const range = ensureAbsentRange(name);
+    const activeToday = isTeacherAbsentOnDate(name);
+    const row = document.createElement("div");
+    row.className = `absent-summary-row${activeToday ? "" : " absent-summary-inactive"}`;
+
+    const nameBtn = document.createElement("button");
+    nameBtn.className = "absent-summary-name";
+    nameBtn.textContent = name;
+    nameBtn.title = "Buka jadual";
+    nameBtn.setAttribute("aria-label", `Fokus jadual ${name}`);
+    nameBtn.addEventListener("click", () => { focusAbsentTeacher = name; renderReliefUi(); });
+
+    const startWrap = document.createElement("label");
+    startWrap.className = "absent-date-field";
+    startWrap.textContent = "Mula";
+    const startInput = document.createElement("input");
+    startInput.type = "date";
+    startInput.value = range.start || "";
+    startInput.disabled = isReliefPlanApproved;
+    startInput.setAttribute("aria-label", `Tarikh mula ${name} tidak hadir`);
+    startInput.addEventListener("change", () => updateAbsentRange(name, "start", startInput.value));
+    startWrap.appendChild(startInput);
+
+    const endWrap = document.createElement("label");
+    endWrap.className = "absent-date-field";
+    endWrap.textContent = "Sampai";
+    const endInput = document.createElement("input");
+    endInput.type = "date";
+    endInput.value = range.end || range.start || "";
+    endInput.min = range.start || "";
+    endInput.disabled = isReliefPlanApproved;
+    endInput.setAttribute("aria-label", `Tarikh tamat ${name} tidak hadir`);
+    endInput.addEventListener("change", () => updateAbsentRange(name, "end", endInput.value));
+    endWrap.appendChild(endInput);
+
+    row.appendChild(nameBtn);
+    row.appendChild(startWrap);
+    row.appendChild(endWrap);
+    if (!activeToday) {
+      const note = document.createElement("div");
+      note.className = "absent-range-note";
+      note.textContent = "Tak termasuk tarikh hari ini";
+      row.appendChild(note);
+    }
+    wrap.appendChild(row);
+  });
+}
+
 
 // ─── Relief Teacher Table & Available Teachers ───────────────
 function buildReliefTeacherTable() {
@@ -924,11 +1150,7 @@ function buildReliefTeacherTable() {
           e.preventDefault();
           const tName = e.dataTransfer.getData("text/plain");
           if (!tName) return;
-          pushUndoState();
-          reliefAssignments[`${focusAbsentTeacher}|${k}`] = tName;
-          reliefScore[tName] = (Number(reliefScore[tName]) || 0) + 1;
-          saveReliefScore();
-          renderReliefUi();
+          assignReliefSlot(`${focusAbsentTeacher}|${k}`, tName);
         });
         td.addEventListener("click", () => {
           if (isReliefPlanApproved) return;
@@ -980,18 +1202,37 @@ function renderAvailableTeachers() {
     chip.setAttribute("aria-label", `${name} score ${score}${sameSubj.includes(name) ? " subjek sama" : ""}`);
     chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", name));
     chip.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        if (isReliefPlanApproved) return;
-        pushUndoState();
-        reliefAssignments[`${focusAbsentTeacher}|${focusSlotKey}`] = name;
-        reliefScore[name] = (Number(reliefScore[name]) || 0) + 1;
-        saveReliefScore();
-        renderReliefUi();
-      }
+      if (e.key === "Enter") assignReliefSlot(`${focusAbsentTeacher}|${focusSlotKey}`, name);
     });
     wrap.appendChild(chip);
   });
   if (!eligible.length) wrap.innerHTML = "<div class='hint'>Tiada cikgu available untuk slot ini.</div>";
+  renderIneligibleTeachers(wrap, day, time, excludeSet, eligible);
+}
+
+function renderIneligibleTeachers(wrap, day, time, excludeSet, eligibleSet) {
+  const subject = slotSubjectMap[focusSlotKey] || "";
+  const subjectMap = getSubjectTeachersMap();
+  const related = subjectMap[subject] ? [...subjectMap[subject]] : [];
+  const ineligible = getAllTeachers()
+    .filter((t) => !excludeSet.has(t) && !eligibleSet.includes(t))
+    .filter((t) => !related.length || related.includes(t))
+    .slice(0, eligibleSet.length ? 5 : 10);
+  if (!ineligible.length) return;
+
+  const box = document.createElement("div");
+  box.className = "ineligible-box";
+  const title = document.createElement("div");
+  title.className = "hint";
+  title.textContent = "Kenapa guru lain tak available:";
+  box.appendChild(title);
+  ineligible.forEach((name) => {
+    const line = document.createElement("div");
+    line.className = "ineligible-line";
+    line.textContent = getIneligibilityReason(name, day, time, excludeSet);
+    box.appendChild(line);
+  });
+  wrap.appendChild(box);
 }
 
 
@@ -1025,13 +1266,11 @@ function openAssignModal(slotKey) {
       row.textContent = `${prefix}${name} (score: ${score})`;
       row.addEventListener("click", () => {
         if (isReliefPlanApproved) return;
-        pushUndoState();
-        reliefAssignments[`${focusAbsentTeacher}|${slotKey}`] = name;
-        reliefScore[name] = (Number(reliefScore[name]) || 0) + 1;
-        saveReliefScore();
-        modal.classList.add("hidden");
-        renderReliefUi();
-        showToast(`${name} di-assign untuk ${day} ${time}.`);
+        if (assignReliefSlot(`${focusAbsentTeacher}|${slotKey}`, name, { silent: true })) {
+          modal.classList.add("hidden");
+          renderReliefUi();
+          showToast(`${name} di-assign untuk ${day} ${time}.`);
+        }
       });
       list.appendChild(row);
     });
@@ -1073,8 +1312,7 @@ function openAssignModal(slotKey) {
     unBtn.style.marginTop = "10px";
     unBtn.textContent = `Buang assignment (${currentAssignee})`;
     unBtn.addEventListener("click", () => {
-      pushUndoState();
-      delete reliefAssignments[`${focusAbsentTeacher}|${slotKey}`];
+      clearReliefSlot(`${focusAbsentTeacher}|${slotKey}`);
       modal.classList.add("hidden");
       renderReliefUi();
       showToast("Assignment dibuang.");
@@ -1103,6 +1341,7 @@ function bindReliefDropzone() {
 function renderReliefUi() {
   renderReliefTeacherList();
   renderAbsentList();
+  renderAbsentSummary();
   buildReliefTeacherTable();
   renderAvailableTeachers();
   renderFinalReliefPlan();
@@ -1116,12 +1355,7 @@ function renderFinalReliefPlan() {
   const wrap = document.getElementById("finalReliefPlan");
   if (!wrap) return;
   wrap.innerHTML = "";
-  const reliefDay = getReliefDay();
-  const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
-    .filter((r) => r.assignee)
-    .filter((r) => !reliefDay || r.day === reliefDay) // Only show today's
-    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+  const rows = getReliefAssignmentRows(true);
 
   if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada assignment relief.</div>"; return; }
   rows.forEach((r) => {
@@ -1139,7 +1373,7 @@ function renderTeacherLoadSummary() {
   if (!wrap) return;
   wrap.innerHTML = "";
   const counts = {};
-  Object.values(reliefAssignments).forEach((name) => { if (name) counts[name] = (counts[name] || 0) + 1; });
+  getReliefAssignmentRows(true).forEach((r) => { counts[r.assignee] = (counts[r.assignee] || 0) + 1; });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (!rows.length) { wrap.innerHTML = "<div class='hint'>Belum ada data load relief.</div>"; return; }
   rows.forEach(([name, cnt]) => {
@@ -1155,16 +1389,29 @@ function renderClashWarning() {
   const box = document.getElementById("clashWarning");
   if (!box) return;
   const bySlotTeacher = {};
-  let clashes = 0;
-  Object.entries(reliefAssignments).forEach(([k, assignee]) => {
-    if (!assignee) return;
-    const [, day, time] = k.split("|");
-    const key = `${assignee}|${day}|${time}`;
+  let duplicateClashes = 0;
+  let scheduleClashes = 0;
+  getReliefAssignmentRows(true).forEach((r) => {
+    const key = `${r.assignee}|${r.day}|${r.time}`;
     bySlotTeacher[key] = (bySlotTeacher[key] || 0) + 1;
+    const ownClass = (guruSchedules[r.assignee] || {})[`${r.day}|${r.time}`];
+    if (ownClass) {
+      const cls = ownClass.split("|")[1] || "";
+      if (!closedClasses.has(cls)) scheduleClashes++;
+    }
   });
-  Object.values(bySlotTeacher).forEach((n) => { if (n > 1) clashes++; });
-  box.textContent = clashes ? `⚠️ Clash: ${clashes} konflik dikesan!` : "✓ Tiada konflik dikesan.";
-  box.style.color = clashes ? "var(--danger)" : "var(--success)";
+  Object.values(bySlotTeacher).forEach((n) => { if (n > 1) duplicateClashes++; });
+  const total = duplicateClashes + scheduleClashes;
+  if (!total) {
+    box.textContent = "✓ Tiada konflik dikesan.";
+    box.style.color = "var(--success)";
+    return;
+  }
+  const parts = [];
+  if (duplicateClashes) parts.push(`${duplicateClashes} guru double-booked`);
+  if (scheduleClashes) parts.push(`${scheduleClashes} guru ada kelas sendiri`);
+  box.textContent = `⚠️ Clash: ${parts.join(", ")}.`;
+  box.style.color = "var(--danger)";
 }
 
 function renderReliefStats() {
@@ -1301,10 +1548,7 @@ function renderAbsentReasonBox() {
 
 function generateWaMessage() {
   parseAbsentReasonBox();
-  const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
-    .filter((r) => r.assignee)
-    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+  const rows = getReliefAssignmentRows(true);
   const date = currentReliefDate || todayIso();
   const dateObj = new Date(`${date}T00:00:00`);
   const dayMap = ["AHAD", "ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT", "SABTU"];
@@ -1313,7 +1557,8 @@ function generateWaMessage() {
   const prettyDate = `${dateObj.getDate()} ${months[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
   const lines = [`${prettyDate} (${dayName})`, ``, `*Relief Hari Ini*`, ``];
 
-  const absentSet = [...new Set(rows.map((r) => r.absent))];
+  let absentSet = getAbsentTeachersForCurrentDate().filter((name) => rows.some((r) => r.absent === name));
+  if (!absentSet.length) absentSet = [...new Set(rows.map((r) => r.absent))];
   absentSet.forEach((name) => {
     const reason = absentReasons[name.toUpperCase()] || "TIADA MAKLUMAT";
     lines.push(`☑️ ${name} - ${reason}`);
@@ -1343,10 +1588,7 @@ async function copyWaMessage() {
 
 // ─── Export PDF ──────────────────────────────────────────────
 function exportReliefPlanPdf() {
-  const rows = Object.entries(reliefAssignments)
-    .map(([k, assignee]) => { const [absent, day, time] = k.split("|"); return { absent, day, time, assignee }; })
-    .filter((r) => r.assignee)
-    .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || TIMES.indexOf(a.time) - TIMES.indexOf(b.time));
+  const rows = getReliefAssignmentRows(true);
   const date = currentReliefDate || todayIso();
   const htmlRows = rows.map((r) => `<tr><td>${esc(r.day)}</td><td>${esc(r.time)}</td><td>${esc(r.absent)}</td><td>${esc(r.assignee)}</td></tr>`).join("");
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relief ${esc(date)}</title>
@@ -1536,6 +1778,11 @@ async function handleUploadBertugas(e) {
 async function handleUploadGuruJson(e) {
   const file = e.target.files[0];
   if (!file) return;
+  if ((absentTeachers.size || Object.keys(reliefAssignments).length) &&
+    !confirm("Upload jadual guru baru akan clear senarai tak hadir & assignment relief semasa. Teruskan?")) {
+    e.target.value = "";
+    return;
+  }
   try {
     const txt = await file.text();
     const parsed = JSON.parse(txt);
@@ -1572,7 +1819,8 @@ function exportAllData() {
     reliefScore,
     reliefRules,
     reliefPlans,
-    absentReasons
+    absentReasons,
+    absentRanges
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1596,6 +1844,7 @@ function importAllData(file) {
       if (data.reliefRules) { reliefRules = data.reliefRules; saveReliefRules(); }
       if (data.reliefPlans) { reliefPlans = data.reliefPlans; saveReliefPlans(); }
       if (data.absentReasons) { absentReasons = data.absentReasons; saveAbsentReasons(); }
+      if (data.absentRanges) { absentRanges = data.absentRanges; saveAbsentRanges(); }
       // Rebuild everything
       buildClassSchedules();
       renderGuruOptions();
@@ -1759,7 +2008,7 @@ function init() {
 }
 
 // ─── Bootstrap: fetch guru-schedules.json then init ──────────
-fetch("./guru-schedules.json?v=20260515")
+fetch("./guru-schedules.json?v=20260608")
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => {
     if (data && data.teachers) {

@@ -84,6 +84,18 @@ body {
 .absent-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
 .absent-tag { background: #ffe5e5; color: #a32020; padding: 6px 10px; border-radius: 999px; border: 1px solid #ffc5c5; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
 .absent-tag button { margin-left: 6px; border: 0; background: transparent; color: #a32020; cursor: pointer; font-weight: 700; min-width: 28px; min-height: 28px; }
+.absent-summary-card { position: sticky; top: 8px; z-index: 25; box-shadow: 0 10px 24px #1f2d441f; }
+.absent-summary-card h3 { margin-top: 0; }
+.absent-summary-list { display: grid; gap: 8px; max-height: 38vh; overflow: auto; padding-right: 4px; }
+.absent-summary-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto; gap: 8px; align-items: end; border: 1px solid #dbe3ef; border-radius: 8px; padding: 8px; background: #f8fbff; }
+.absent-summary-name { border: 0; background: transparent; color: #a32020; cursor: pointer; font-weight: 800; text-align: left; min-height: 36px; padding: 0; }
+.absent-date-field { display: grid; gap: 3px; font-size: .82rem; color: #3a4654; }
+.absent-date-field input { border: 1px solid #ccd5e2; border-radius: 8px; padding: 7px 8px; min-height: 36px; font: inherit; background: #fff; }
+.absent-summary-inactive { opacity: .72; background: #f3f5f8 !important; }
+.absent-summary-inactive .absent-summary-name { color: #5f6b7a; }
+.absent-range-note { grid-column: 1 / -1; font-size: .78rem; color: #7a5b00; font-weight: 700; }
+.ineligible-box { margin-top: 10px; border: 1px dashed #ccd5e2; border-radius: 8px; padding: 8px; background: #fbfcfe; }
+.ineligible-line { font-size: .82rem; color: #5f6b7a; margin-top: 4px; }
 .ghost-btn { border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; min-height: 28px; }
 .suggestions { display: grid; gap: 10px; }
 .sug-item { border: 1px solid #d9e1ed; border-radius: 10px; padding: 10px; background: #fff; }
@@ -107,6 +119,7 @@ body {
   .teacher-name { width: fit-content; }
   .admin-grid { grid-template-columns: 1fr; }
   .relief-grid { grid-template-columns: 1fr; }
+  .absent-summary-row { grid-template-columns: 1fr; }
 }
 
 #bertugasTable .slot-cell{cursor:default;background:#fff;}
