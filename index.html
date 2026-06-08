@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608bertugas" />
+  <link rel="stylesheet" href="style.css?v=20260608bertugasauto" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -228,6 +228,10 @@
             <button id="bertugasViewDigital" class="segment-btn active" type="button" aria-pressed="true">Jadual Digital</button>
             <button id="bertugasViewRef" class="segment-btn" type="button" aria-pressed="false">Gambar Rujukan</button>
           </div>
+          <label class="btn secondary upload-label-btn">
+            Upload Gambar
+            <input id="uploadBertugasTab" type="file" accept="application/pdf,image/jpeg,image/png" multiple class="file-input-hidden" aria-label="Upload gambar jadual bertugas" />
+          </label>
           <label for="bertugasWeekInput" class="field-label">Minggu</label>
           <input id="bertugasWeekInput" type="date" class="input-glass" aria-label="Pilih tarikh minggu bertugas" />
           <button id="bertugasWeekBtn" class="btn secondary">Set Minggu</button>
@@ -316,6 +320,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608bertugas"></script>
+  <script src="app.js?v=20260608bertugasauto"></script>
 </body>
 </html>

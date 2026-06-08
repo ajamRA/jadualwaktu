@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 BertugasImg";
+const BUILD_ID = "Build 2026-06-08 BertugasAuto";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");
@@ -729,6 +729,10 @@ function activateTab(name) {
     btn.setAttribute("aria-selected", String(active));
   });
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${name}`));
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.getElementById(`tab-${name}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 // ─── Table Builders ──────────────────────────────────────────
@@ -1797,7 +1801,10 @@ function loadBertugasFiles() {
 }
 
 function getBertugasViewMode() {
-  return localStorage.getItem(KEYS.bertugasView) === "ref" ? "ref" : "digital";
+  const saved = localStorage.getItem(KEYS.bertugasView);
+  if (saved === "digital") return "digital";
+  if (saved === "ref" || loadBertugasFiles().length) return "ref";
+  return "digital";
 }
 
 function setBertugasViewMode(mode) {
@@ -1882,23 +1889,26 @@ async function handleUploadJadual(e) {
   showToast("Fail rujukan jadual diupload.");
 }
 
-async function handleUploadBertugas(e) {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
+async function processBertugasUpload(files, inputEl) {
+  if (!files.length) return false;
   const out = [];
   for (const f of files) out.push(await fileToStoredRef(f));
   const payload = JSON.stringify(out);
   if (!safeSetLocalStorage(KEYS.bertugasFiles, payload)) {
     showToast("Gagal simpan — gambar terlalu besar untuk storan browser. Cuba resize/compress JPEG dahulu.");
-    e.target.value = "";
-    return;
+    if (inputEl) inputEl.value = "";
+    return false;
   }
   renderUploadInfo();
-  renderBertugasReference();
-  setBertugasViewMode("ref");
   activateTab("bertugas");
-  showToast(`${files.length} fail rujukan bertugas diupload. Paparan ditukar ke Gambar Rujukan.`);
-  e.target.value = "";
+  setBertugasViewMode("ref");
+  showToast(`${files.length} gambar jadual bertugas dimuat naik.`);
+  if (inputEl) inputEl.value = "";
+  return true;
+}
+
+async function handleUploadBertugas(e) {
+  await processBertugasUpload(Array.from(e.target.files || []), e.target);
 }
 
 async function handleUploadGuruJson(e) {
@@ -2013,6 +2023,8 @@ function init() {
   // File uploads
   document.getElementById("uploadJadual").addEventListener("change", handleUploadJadual);
   document.getElementById("uploadBertugas").addEventListener("change", handleUploadBertugas);
+  const uploadBertugasTab = document.getElementById("uploadBertugasTab");
+  if (uploadBertugasTab) uploadBertugasTab.addEventListener("change", handleUploadBertugas);
   document.getElementById("uploadGuruJson").addEventListener("change", handleUploadGuruJson);
 
   // Available slot select

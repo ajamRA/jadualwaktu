@@ -735,6 +735,15 @@ code {
 .bertugas-layout .names-row td { font-style: italic; }
 
 .bertugas-toolbar { flex-wrap: wrap; gap: 10px; align-items: center; }
+.file-input-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.upload-label-btn { position: relative; cursor: pointer; }
 .bertugas-view-hidden { display: none !important; }
 .bertugas-ref-empty-hidden { display: none; }
 
