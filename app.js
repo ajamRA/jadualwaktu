@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 TeacherCloseSuggest";
+const BUILD_ID = "Build 2026-06-08 WaMeetingFix";
 const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
 const MANY_ABSENT_TEACHERS_THRESHOLD = 9;
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
@@ -2376,10 +2376,67 @@ function renderAbsentReasonBox() {
   box.value = Object.entries(absentReasons).map(([k, v]) => `${k}|${v}`).join("\n");
 }
 
+function formatWaSlotTime(time) {
+  const [t1, t2] = String(time || "").split("-");
+  const fmt = (x) => x.replace(":", ".");
+  return `${fmt(t1)}-${fmt(t2)}`;
+}
+
+function getTeacherWaSlotLines(name, reliefDay, rows) {
+  if (!reliefDay) return [];
+  const lines = [];
+  const listed = new Set();
+  const map = guruSchedules[name] || {};
+
+  rows
+    .filter((r) => r.absent === name && r.day === reliefDay)
+    .sort((a, b) => TIMES.indexOf(a.time) - TIMES.indexOf(b.time))
+    .forEach((r) => {
+      listed.add(r.time);
+      const slot = map[`${r.day}|${r.time}`] || "";
+      let subject = "-";
+      let cls = "-";
+      if (slot.includes("|")) {
+        const [s, c] = slot.split("|");
+        subject = s;
+        cls = c;
+      }
+      lines.push(`   ${cls} ${formatWaSlotTime(r.time)} ${subject} → ${r.assignee}`);
+    });
+
+  TIMES.forEach((time) => {
+    if (listed.has(time)) return;
+    const val = map[`${reliefDay}|${time}`];
+    if (!val || !val.includes("|")) return;
+    if (!isTeacherAbsentForSlot(name, reliefDay, time)) return;
+    const [subject, cls] = val.split("|");
+    const className = cls.trim();
+    if (isClosedClass(className)) {
+      lines.push(`   ${className} ${formatWaSlotTime(time)} ${subject.trim()} → KELAS TUTUP`);
+    } else {
+      lines.push(`   ${className} ${formatWaSlotTime(time)} ${subject.trim()} → BELUM ASSIGN`);
+    }
+  });
+
+  const until = getAbsentUntilTime(name);
+  if (until) {
+    lines.push(`   *(Mesyuarat — ${formatUntilTimeLabel(until)})*`);
+  }
+  return lines;
+}
+
+function getWaAbsentReason(name) {
+  const key = name.toUpperCase();
+  if (absentReasons[key]) return absentReasons[key];
+  if (getAbsentUntilTime(name)) return "MESYUARAT";
+  return "TIADA MAKLUMAT";
+}
+
 function generateWaMessage() {
   parseAbsentReasonBox();
   purgeClosedClassReliefAssignments();
   const rows = getReliefAssignmentRows(true);
+  const reliefDay = getReliefDay();
   const date = currentReliefDate || todayIso();
   const dateObj = new Date(`${date}T00:00:00`);
   const dayMap = ["AHAD", "ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT", "SABTU"];
@@ -2388,19 +2445,14 @@ function generateWaMessage() {
   const prettyDate = `${dateObj.getDate()} ${months[dateObj.getMonth()]} ${dateObj.getFullYear()}`;
   const lines = [`${prettyDate} (${dayName})`, ``, `*Relief Hari Ini*`, ``];
 
-  let absentSet = getAbsentTeachersForCurrentDate().filter((name) => rows.some((r) => r.absent === name));
+  let absentSet = getAbsentTeachersForCurrentDate();
   if (!absentSet.length) absentSet = [...new Set(rows.map((r) => r.absent))];
+  absentSet.sort((a, b) => a.localeCompare(b));
+
   absentSet.forEach((name) => {
-    const reason = absentReasons[name.toUpperCase()] || "TIADA MAKLUMAT";
-    lines.push(`☑️ ${name} - ${reason}`);
-    rows.filter((r) => r.absent === name).forEach((r) => {
-      const slot = (guruSchedules[name] || {})[`${r.day}|${r.time}`] || "";
-      let subject = "-", cls = "-";
-      if (slot.includes("|")) { const [s, c] = slot.split("|"); subject = s; cls = c; }
-      const [t1, t2] = r.time.split("-");
-      const fmt = (x) => x.replace(":", ".");
-      lines.push(`   ${cls} ${fmt(t1)}-${fmt(t2)} ${subject} → ${r.assignee}`);
-    });
+    lines.push(`☑️ ${name} - ${getWaAbsentReason(name)}`);
+    const slotLines = getTeacherWaSlotLines(name, reliefDay, rows);
+    if (slotLines.length) slotLines.forEach((l) => lines.push(l));
     lines.push("");
   });
   if (closedClasses.size) {
@@ -2408,7 +2460,7 @@ function generateWaMessage() {
     [...closedClasses].sort().forEach((cls) => lines.push(`- ${cls}`));
     lines.push("");
   }
-  if (!rows.length) lines.push("Tiada assignment relief.");
+  if (!absentSet.length && !rows.length) lines.push("Tiada assignment relief.");
   const el = document.getElementById("waMessageBox");
   if (el) el.value = lines.join("\n");
   showToast("Mesej WhatsApp dijana.");
