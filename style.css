@@ -26,7 +26,20 @@ body {
 }
 .logo-wrap { width: 72px; height: 72px; border-radius: 50%; border: 3px solid #2048a8; display: grid; place-items: center; background: #fff; }
 .logo { font-weight: 800; color: #2048a8; }
+.title-wrap { display: grid; gap: 4px; align-content: center; }
 .title { margin: 0; color: #14274f; letter-spacing: 1px; }
+.build-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #e8eef8;
+  color: #3a4d73;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .3px;
+  border: 1px solid #c8d4e8;
+}
 .teacher-name { background: #ddd9ff; padding: 10px 16px; border-radius: 999px; font-weight: 700; border: 0; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; pointer-events: auto; position: relative; z-index: 20; min-height: 44px; display: inline-flex; align-items: center; }
 .teacher-name:hover { filter: brightness(0.97); }
 .teacher-name:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

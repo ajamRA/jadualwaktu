@@ -14,7 +14,12 @@
    ============================================================ */
 
 const BUILD_ID = "Build 2026-06-08";
-document.title = `${document.title} | ${BUILD_ID}`;
+function renderBuildBadge() {
+  document.title = `Jadual Guru Pro | ${BUILD_ID}`;
+  const badge = document.getElementById("buildBadge");
+  if (badge) badge.textContent = BUILD_ID;
+}
+renderBuildBadge();
 
 // ─── Constants ───────────────────────────────────────────────
 const DAYS = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
@@ -1990,6 +1995,7 @@ function init() {
   });
 
   // ─── Build UI ────────────────────────────────────────────
+  renderBuildBadge();
   renderGuruOptions();
   renderReliefRulesForm();
   renderAbsentReasonBox();
