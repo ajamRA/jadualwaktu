@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 UI";
+const BUILD_ID = "Build 2026-06-08 UUPM";
 function renderBuildBadge() {
   document.title = `Jadual Guru Pro | ${BUILD_ID}`;
   const badge = document.getElementById("buildBadge");

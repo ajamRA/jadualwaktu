@@ -9,13 +9,17 @@
   <title>Jadual Guru Pro</title>
   <meta name="theme-color" content="#1a2744" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="style.css?v=20260608ui" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=20260608uupm" />
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
   <div class="bg-orb bg-orb-a" aria-hidden="true"></div>
   <div class="bg-orb bg-orb-b" aria-hidden="true"></div>
 
-  <main class="page">
+  <main id="main-content" class="page">
     <header class="topbar glass-panel">
       <div class="logo-wrap"><div class="logo">SK</div></div>
       <div class="title-wrap">
@@ -74,8 +78,8 @@
           <button id="approveReliefPlanBtn" class="btn success">Approve + Lock</button>
           <button id="unlockReliefPlanBtn" class="btn secondary">Unlock</button>
           <button id="exportReliefPdfBtn" class="btn secondary">PDF</button>
-          <button id="undoReliefBtn" class="btn ghost" aria-label="Undo">↩ Undo</button>
-          <button id="redoReliefBtn" class="btn ghost" aria-label="Redo">↪ Redo</button>
+          <button id="undoReliefBtn" class="btn ghost" aria-label="Undo">Undo</button>
+          <button id="redoReliefBtn" class="btn ghost" aria-label="Redo">Redo</button>
         </div>
         <div class="status-row">
           <p id="reliefPlanStatus" class="status-pill">Status: Draft</p>
@@ -97,7 +101,7 @@
               </div>
               <div class="sub-card">
                 <h3>Tidak Hadir</h3>
-                <div id="absentDropzone" class="dropzone" role="region" aria-label="Zon drop guru tidak hadir">⬇ Drop guru di sini</div>
+                <div id="absentDropzone" class="dropzone" role="region" aria-label="Zon drop guru tidak hadir">Drop guru di sini</div>
                 <div id="absentList" class="absent-list"></div>
               </div>
             </div>
@@ -109,7 +113,7 @@
           </div>
 
           <details class="card glass-card collapsible">
-            <summary>⚡ Auto-Assign</summary>
+            <summary>Auto-Assign</summary>
             <div class="collapsible-body">
               <p class="hint-sm">Assign automatik ikut subjek sama &amp; fairness score (hari dipilih sahaja).</p>
               <div class="toolbar">
@@ -121,7 +125,7 @@
           </details>
 
           <details class="card glass-card collapsible">
-            <summary>🚫 Tutup Kelas</summary>
+            <summary>Tutup Kelas</summary>
             <div class="collapsible-body">
               <p class="hint-sm">Guru kelas ditutup jadi available untuk relief.</p>
               <div class="toolbar">
@@ -134,7 +138,7 @@
           </details>
 
           <details class="card glass-card collapsible">
-            <summary>⚙️ Tetapan Relief</summary>
+            <summary>Tetapan Relief</summary>
             <div class="collapsible-body">
               <div class="toolbar flex-wrap">
                 <label for="maxReliefPerDay" class="field-label">Max / Hari</label>
@@ -152,7 +156,7 @@
           </details>
 
           <details class="card glass-card collapsible">
-            <summary>📊 Statistik Fairness</summary>
+            <summary>Statistik Fairness</summary>
             <div class="collapsible-body">
               <div id="reliefStats" class="relief-stats"></div>
             </div>
@@ -302,6 +306,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608ui"></script>
+  <script src="app.js?v=20260608uupm"></script>
 </body>
 </html>
