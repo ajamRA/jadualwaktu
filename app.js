@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 EditNama";
+const BUILD_ID = "Build 2026-06-08 SingleNama";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -1724,10 +1724,14 @@ function setBertugasEditMode(on) {
 
 function saveBertugasInline(syncCloud = false) {
   document.querySelectorAll("#bertugasTable .bertugas-cell-input").forEach((input) => {
-    const val = input.value.trim().toUpperCase();
-    if (val) bertugasMap[input.dataset.bkey] = val;
+    const { text, hadPair } = sanitizeSingleTeacherName(input.value);
+    if (hadPair) input.value = text;
+    if (text) bertugasMap[input.dataset.bkey] = text.toUpperCase();
     else delete bertugasMap[input.dataset.bkey];
   });
+  if (getBertugasConfig().kumpulan === "B") {
+    for (const day of DAYS) splitPairToSecondRow(bertugasMap, day, "PONDOK PENGAWAL 1", "PONDOK PENGAWAL 2");
+  }
   saveBertugasMap();
   buildBertugasEditor();
   if (syncCloud) publishBertugasCloud({ silent: true });
@@ -1751,7 +1755,7 @@ function createBertugasTableBuilder(table) {
         input.className = "bertugas-cell-input";
         input.value = bertugasMap[cell.editKey] || "";
         input.dataset.bkey = cell.editKey;
-        input.placeholder = "Nama";
+        input.placeholder = "Satu nama";
         input.setAttribute("aria-label", cell.editKey.replace("|", " "));
         el.appendChild(input);
       } else {
@@ -1887,7 +1891,7 @@ function buildBertugasEditor() {
       const td = document.createElement("td");
       const input = document.createElement("input");
       input.className = "editor-input";
-      input.placeholder = "Nama guru";
+      input.placeholder = "Satu nama";
       input.value = bertugasMap[`${day}|${row}`] || "";
       input.dataset.bkey = `${day}|${row}`;
       input.setAttribute("aria-label", `${day} ${row}`);
@@ -1930,9 +1934,12 @@ function saveFromEditor() {
 function saveBertugasFromEditor() {
   const next = {};
   document.querySelectorAll(".editor-input[data-bkey]").forEach((input) => {
-    const val = input.value.trim().toUpperCase();
-    if (val) next[input.dataset.bkey] = val;
+    const { text } = sanitizeSingleTeacherName(input.value);
+    if (text) next[input.dataset.bkey] = text.toUpperCase();
   });
+  if (getBertugasConfig().kumpulan === "B") {
+    for (const day of DAYS) splitPairToSecondRow(next, day, "PONDOK PENGAWAL 1", "PONDOK PENGAWAL 2");
+  }
   bertugasMap = next;
   saveBertugasMap();
   buildBertugasTable();
@@ -2162,17 +2169,45 @@ function fuzzyMatchTeacher(raw) {
   return { name: clean, matched: false };
 }
 
+function sanitizeSingleTeacherName(val) {
+  const raw = String(val || "").replace(/\(K\)/gi, "").trim();
+  if (!raw) return { text: "", hadPair: false };
+  const parts = raw.split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
+  return { text: parts[0] || "", hadPair: parts.length > 1 };
+}
+
 function normalizeTeacherField(val) {
-  const parts = String(val || "").replace(/\(K\)/gi, "").split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
-  if (!parts.length) return { text: "", matched: true };
-  const out = [];
-  let allMatched = true;
-  for (const p of parts) {
-    const m = fuzzyMatchTeacher(p);
-    out.push(m.name);
-    if (!m.matched) allMatched = false;
+  const { text: single, hadPair } = sanitizeSingleTeacherName(val);
+  if (!single) return { text: "", matched: true, hadPair: false };
+  const m = fuzzyMatchTeacher(single);
+  return { text: m.name, matched: m.matched, hadPair };
+}
+
+function splitPairToSecondRow(assignments, day, row1, row2) {
+  const k1 = `${day}|${row1}`;
+  const k2 = `${day}|${row2}`;
+  const raw = assignments[k1];
+  if (!raw || !String(raw).includes("/")) return;
+  const parts = String(raw).split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return;
+  assignments[k1] = parts[0].toUpperCase();
+  if (parts[1] && !assignments[k2]) assignments[k2] = parts[1].toUpperCase();
+}
+
+function cleanupBertugasMapPairs() {
+  let changed = false;
+  for (const [k, v] of Object.entries({ ...bertugasMap })) {
+    const s = sanitizeSingleTeacherName(v);
+    const next = s.text ? s.text.toUpperCase() : "";
+    if (!next) { delete bertugasMap[k]; changed = true; continue; }
+    if (next !== v) { bertugasMap[k] = next; changed = true; }
   }
-  return { text: out.join(" / "), matched: allMatched };
+  if (getBertugasConfig().kumpulan === "B") {
+    const before = JSON.stringify(bertugasMap);
+    for (const day of DAYS) splitPairToSecondRow(bertugasMap, day, "PONDOK PENGAWAL 1", "PONDOK PENGAWAL 2");
+    if (JSON.stringify(bertugasMap) !== before) changed = true;
+  }
+  if (changed) saveBertugasMap();
 }
 
 function getTeacherNameList() {
@@ -2218,13 +2253,18 @@ function postProcessAiAssignments(assignments, kumpulan) {
 function processAiParseResult(parsed) {
   const kumpulan = (parsed?.kumpulan || bertugasMeta.kumpulan || "B").toUpperCase();
   const uncertain = new Set((parsed?.uncertain || []).map((k) => normalizeBertugasKey(k, kumpulan)).filter(Boolean));
-  const rawAssignments = parsed?.assignments || {};
+  const keyedRaw = {};
+  for (const [rawKey, rawVal] of Object.entries(parsed?.assignments || {})) {
+    const key = normalizeBertugasKey(rawKey, kumpulan);
+    if (key) keyedRaw[key] = rawVal;
+  }
+  if (kumpulan === "B") {
+    for (const day of DAYS) splitPairToSecondRow(keyedRaw, day, "PONDOK PENGAWAL 1", "PONDOK PENGAWAL 2");
+  }
   const normalized = {};
   const reviewRows = [];
 
-  for (const [rawKey, rawVal] of Object.entries(rawAssignments)) {
-    const key = normalizeBertugasKey(rawKey, kumpulan);
-    if (!key) continue;
+  for (const [key, rawVal] of Object.entries(keyedRaw)) {
     const norm = normalizeTeacherField(rawVal);
     if (!norm.text) continue;
     normalized[key] = norm.text;
@@ -2233,7 +2273,7 @@ function processAiParseResult(parsed) {
       label: key.replace("|", " — "),
       raw: String(rawVal || "").replace(/\(K\)/gi, "").trim().toUpperCase(),
       value: norm.text,
-      warn: uncertain.has(key) || !norm.matched
+      warn: uncertain.has(key) || !norm.matched || norm.hadPair
     });
   }
 
@@ -2760,6 +2800,7 @@ function init() {
   buildMainTable();
   buildClassTable();
   buildEditor();
+  cleanupBertugasMapPairs();
   buildBertugasTable();
   buildBertugasEditor();
   renderUploadInfo();

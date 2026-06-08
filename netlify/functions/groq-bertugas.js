@@ -33,9 +33,10 @@ STRUKTUR IMEJ (atas→bawah):
    - 3.00-3.30 PTG: ISNIN-KHAMIS (JUMAAT kosong "-")
    - 3.30-4.00 PTG: ISNIN-KHAMIS
    - JUMAAT sahaja: 3.30-4.00 → JUMAAT|KANTIN (3.30-4.00), 4.00-4.30 → JUMAAT|KANTIN (4.00-4.30)
-4. KAWALAN DI PONDOK PENGAWAL — 2 baris atas/bawah setiap hari:
-   - baris atas → PONDOK PENGAWAL 1
-   - baris bawah → PONDOK PENGAWAL 2
+4. KAWALAN DI PONDOK PENGAWAL — 2 baris berasingan setiap hari:
+   - baris atas → PONDOK PENGAWAL 1 (SATU nama)
+   - baris bawah → PONDOK PENGAWAL 2 (SATU nama)
+   - JANGAN gabung dua nama dalam satu sel (tiada " / ")
 5. TUGAS KHAS (ALL|...):
    - BUKU LAPORAN BERTUGAS
    - LAPORAN BERTUGAS
@@ -61,7 +62,9 @@ Return JSON:
   "uncertain": []
 }
 
-Peraturan: UPPERCASE, buang (K), kosong "" jika tiada.`;
+Peraturan:
+- SATU nama sahaja setiap kunci — JANGAN guna " / " atau pair
+- UPPERCASE, buang (K), kosong "" jika tiada`;
 }
 
 function buildPromptD(teacherNames) {
