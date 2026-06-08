@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 WaMeetingFix";
+const BUILD_ID = "Build 2026-06-08 UntilTimeFix";
 const SESSION_NOTE = "Sesi petang 12:15–6:45 — slot jadual 1:00 ptg hingga 6:30 ptg (tiada sesi pagi).";
 const MANY_ABSENT_TEACHERS_THRESHOLD = 9;
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
@@ -385,11 +385,12 @@ function ensureAbsentRange(name, resetWhenOutside = false) {
   const current = absentRanges[name] || {};
   let start = current.start || fallback.start;
   let end = current.end || start;
+  let untilTime = current.untilTime || "";
   if (resetWhenOutside && fallback.start && (fallback.start < start || fallback.start > end)) {
     start = fallback.start;
     end = fallback.start;
   }
-  absentRanges[name] = { start, end };
+  absentRanges[name] = untilTime ? { start, end, untilTime } : { start, end };
   return absentRanges[name];
 }
 
@@ -1456,7 +1457,13 @@ function renderAbsentList() {
 function updateAbsentRange(name, field, value) {
   if (isReliefPlanApproved || !name) return;
   const range = ensureAbsentRange(name);
-  const next = { ...range, [field]: value || range[field] };
+  const next = { ...range };
+  if (field === "untilTime") {
+    if (value) next.untilTime = value;
+    else delete next.untilTime;
+  } else {
+    next[field] = value || range[field];
+  }
   if (next.start && next.end && next.end < next.start) {
     if (field === "start") next.end = next.start;
     else next.start = next.end;
@@ -1464,6 +1471,7 @@ function updateAbsentRange(name, field, value) {
   absentRanges[name] = next;
   if (field === "untilTime") clearReliefAssignmentsAfterUntil(name);
   saveAbsentRanges();
+  autosaveReliefPlan();
   renderAbsentSummary();
   if (field === "untilTime") renderReliefUi();
 }
@@ -2434,6 +2442,7 @@ function getWaAbsentReason(name) {
 
 function generateWaMessage() {
   parseAbsentReasonBox();
+  purgePartialAbsentReliefAssignments();
   purgeClosedClassReliefAssignments();
   const rows = getReliefAssignmentRows(true);
   const reliefDay = getReliefDay();
