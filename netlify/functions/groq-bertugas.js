@@ -8,45 +8,56 @@ const corsHeaders = {
 };
 
 function buildPrompt(teacherNames) {
-  const rows = [
-    "PAGAR WAKTU DATANG (MURID)",
-    "PAGAR (12.20 TENGAH HARI)",
-    "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
-    "WAKTU REHAT (3.00-3.30)",
-    "WAKTU REHAT (3.30-4.00)",
-    "WAKTU BALIK (6.30 PETANG)",
-    "KAWALAN MURID (6.00 PETANG)",
-    "TUGAS KHAS"
-  ];
   const days = ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"];
-  const footer = ["BUKU LAPORAN BERTUGAS", "LAPORAN BERTUGAS&NILAI MURNI", "RMT/KANTIN"];
   const keys = [];
-  for (const row of rows) for (const day of days) keys.push(`${day}|${row}`);
-  for (const row of footer) keys.push(`ALL|${row}`);
+  const rows = [
+    ["PAGAR WAKTU DATANG (MURID)", "Satu baris nama bawah header hari — pagar waktu datang murid"],
+    ["PAGAR (12.20 TENGAH HARI)", "Biasanya SAMA dengan pagar waktu datang untuk hari sama"],
+    ["KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)", "Baris ketua bertugas dewan tengah hari"],
+    ["WAKTU REHAT (3.00-3.30)", "Baris rehat slot pertama"],
+    ["WAKTU REHAT (3.30-4.00)", "Baris rehat slot kedua — JANGAN campur dengan slot pertama"],
+    ["KAWALAN MURID (6.00 PETANG)", "Baris kawalan murid petang — boleh 2 nama dengan /"],
+    ["TUGAS KHAS", "Jika ada dalam imej"]
+  ];
+  for (const [row] of rows) for (const day of days) keys.push(`${day}|${row}`);
+  ["BUKU LAPORAN BERTUGAS", "LAPORAN BERTUGAS&NILAI MURNI", "RMT/KANTIN"].forEach((r) => keys.push(`ALL|${r}`));
 
-  return `Baca imej JADUAL BERTUGAS sekolah Malaysia ini. Ekstrak nama guru untuk setiap slot.
+  return `Anda OCR jadual bertugas sekolah Malaysia. Imej ialah jadual dengan LAJUR hari (ISNIN→JUMAAT).
 
-Hari: ISNIN, SELASA, RABU, KHAMIS, JUMAAT
-Kunci assignment (guna tepat):
-${keys.map((k) => `- ${k}`).join("\n")}
+STRUKTUR JADUAL (atas ke bawah):
+1. PAGAR WAKTU DATANG (MURID) — 1 baris 5 nama (ISNIN..JUMAAT)
+2. PAGAR (12.20 TENGAH HARI) — biasanya nama sama seperti #1
+3. KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI) — 1 baris 5 nama
+4. WAKTU REHAT — 2 baris berasingan:
+   - baris "3.00-3.30" (5 nama)
+   - baris "3.30-4.00" (5 nama)
+5. KAWALAN MURID (6.00 PETANG) — 1 baris 5 nama
+6. Footer (seluruh minggu): BUKU LAPORAN BERTUGAS, LAPORAN BERTUGAS&NILAI MURNI, RMT/KANTIN
 
-Senarai guru dikenali (padankan nama jika boleh): ${teacherNames.join(", ")}
+PENTING:
+- Baca setiap SEL mengikut LAJUR hari di atasnya, bukan baris sebelah
+- Jangan gerakkan nama ke hari salah
+- Waktu rehat ada 2 baris — jangan salin baris pertama ke baris kedua
+- Padankan ejaan nama ke senarai guru jika hampir sama
 
-Return JSON sahaja:
+Senarai guru sah: ${teacherNames.join(", ")}
+
+Kunci JSON (guna tepat):
+${keys.map((k) => `"${k}"`).join(", ")}
+
+Return JSON:
 {
-  "weekStart": "YYYY-MM-DD atau kosong",
-  "weekEnd": "YYYY-MM-DD atau kosong",
-  "assignments": {
-    "ISNIN|PAGAR WAKTU DATANG (MURID)": "NAMA",
-    "ALL|BUKU LAPORAN BERTUGAS": "NAMA"
-  }
+  "weekStart": "YYYY-MM-DD",
+  "weekEnd": "YYYY-MM-DD",
+  "assignments": { "ISNIN|PAGAR WAKTU DATANG (MURID)": "NAMA", ... },
+  "uncertain": ["ISNIN|WAKTU REHAT (3.00-3.30)"]
 }
 
 Peraturan:
-- Nama UPPERCASE
-- Dua guru guna " / " contoh: "SARINAH / ABDULLAH"
-- Jika tidak boleh baca, guna string kosong ""
-- Jangan tambah kunci selain senarai di atas`;
+- Nama UPPERCASE, 2 guru: "NAMA1 / NAMA2"
+- uncertain = slot yang kurang pasti / blur
+- Kosongkan "" jika tiada dalam imej
+- Jangan cipta kunci baru`;
 }
 
 exports.handler = async (event) => {
@@ -74,7 +85,7 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: GROQ_MODEL,
-        temperature: 0.1,
+        temperature: 0,
         max_completion_tokens: 4096,
         response_format: { type: "json_object" },
         messages: [

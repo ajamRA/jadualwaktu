@@ -746,6 +746,28 @@ code {
 .upload-label-btn { position: relative; cursor: pointer; }
 .ai-status { font-size: 0.85rem; color: var(--color-muted-foreground); font-weight: 500; }
 .ai-status.busy { color: var(--color-primary); }
+
+.ai-review-modal { max-width: 720px; width: min(96vw, 720px); }
+.ai-review-list {
+  max-height: 50vh;
+  overflow: auto;
+  margin: 12px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.ai-review-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.82rem;
+}
+.ai-review-row:last-child { border-bottom: none; }
+.ai-review-row.warn { background: rgba(251, 191, 36, 0.15); }
+.ai-review-slot { font-weight: 600; color: var(--color-muted-foreground); }
+.ai-review-name { font-weight: 600; }
 .bertugas-view-hidden { display: none !important; }
 .bertugas-ref-empty-hidden { display: none; }
 

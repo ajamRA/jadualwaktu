@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260608cloud" />
+  <link rel="stylesheet" href="style.css?v=20260608ai2" />
 </head>
 <body>
   <a class="skip-link" href="#main-content">Langkau ke kandungan</a>
@@ -323,6 +323,19 @@
     </div>
   </div>
 
+  <div id="aiReviewModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aiReviewTitle">
+    <div class="modal-card glass-card ai-review-modal">
+      <h3 id="aiReviewTitle">Semak Hasil AI</h3>
+      <p class="hint-sm">AI kadang salah baca. Semak slot bertanda ⚠ sebelum guna. Boleh betulkan lepas ini di Admin → Edit Jadual Bertugas.</p>
+      <div id="aiReviewSummary" class="upload-info"></div>
+      <div id="aiReviewList" class="ai-review-list"></div>
+      <div class="toolbar toolbar-end">
+        <button id="aiReviewCancel" class="btn secondary" type="button">Batal</button>
+        <button id="aiReviewApply" class="btn" type="button">Guna Hasil AI</button>
+      </div>
+    </div>
+  </div>
+
   <div id="guruPickerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="guruPickerTitle">
     <div class="modal-card glass-card">
       <h3 id="guruPickerTitle">Pilih Guru</h3>
@@ -336,6 +349,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=20260608cloud"></script>
+  <script src="app.js?v=20260608ai2"></script>
 </body>
 </html>

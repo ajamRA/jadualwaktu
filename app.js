@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 CloudSync";
+const BUILD_ID = "Build 2026-06-08 AIReview";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -185,6 +185,28 @@ let absentRanges = loadAbsentRanges();
 let bertugasWeekDate = localStorage.getItem(KEYS.bertugasWeek) || todayIso();
 let closedClasses = new Set(); // Format: "KELAS_NAME" — kelas yang ditutup hari ini
 let autosaveTimer = null;
+let pendingAiParse = null;
+
+const BERTUGAS_ROW_ALIASES = {
+  "PAGAR WAKTU DATANG (MURID)": "PAGAR WAKTU DATANG (MURID)",
+  "PAGAR WAKTU DATANG": "PAGAR WAKTU DATANG (MURID)",
+  "PAGAR (12.20 TENGAH HARI)": "PAGAR (12.20 TENGAH HARI)",
+  "PAGAR": "PAGAR (12.20 TENGAH HARI)",
+  "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)": "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
+  "KETUA BERTUGAS DI DEWAN": "KETUA BERTUGAS DI DEWAN (12.30 TENGAH HARI)",
+  "WAKTU REHAT (3.00-3.30)": "WAKTU REHAT (3.00-3.30)",
+  "3.00-3.30": "WAKTU REHAT (3.00-3.30)",
+  "WAKTU REHAT (3.30-4.00)": "WAKTU REHAT (3.30-4.00)",
+  "3.30-4.00": "WAKTU REHAT (3.30-4.00)",
+  "WAKTU BALIK (6.30 PETANG)": "WAKTU BALIK (6.30 PETANG)",
+  "KAWALAN MURID (6.00 PETANG)": "KAWALAN MURID (6.00 PETANG)",
+  "KAWALAN MURID": "KAWALAN MURID (6.00 PETANG)",
+  "TUGAS KHAS": "TUGAS KHAS",
+  "BUKU LAPORAN BERTUGAS": "BUKU LAPORAN BERTUGAS",
+  "LAPORAN BERTUGAS&NILAI MURNI": "LAPORAN BERTUGAS&NILAI MURNI",
+  "LAPORAN BERTUGAS": "LAPORAN BERTUGAS&NILAI MURNI",
+  "RMT/KANTIN": "RMT/KANTIN"
+};
 
 // ─── Load/Save Functions ─────────────────────────────────────
 function loadScheduleMap() {
@@ -1926,16 +1948,79 @@ function saveGroqApiKey() {
 }
 
 async function compressForGroq(dataUrl) {
-  let url = dataUrl;
-  for (const q of [0.8, 0.65, 0.5, 0.35]) {
-    url = await compressDataUrl(url, 1100, q);
+  let url = await compressDataUrl(dataUrl, 1500, 0.88);
+  if (url.length < 3_400_000) return url;
+  for (const q of [0.75, 0.6, 0.45]) {
+    url = await compressDataUrl(url, 1300, q);
     if (url.length < 3_400_000) return url;
   }
   return url;
 }
 
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
+function fuzzyMatchTeacher(raw) {
+  const clean = String(raw || "").replace(/[^A-Za-z\s/]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  if (!clean) return { name: "", matched: true };
+  const teachers = getAllTeachers();
+  if (teachers.includes(clean)) return { name: clean, matched: true };
+
+  let best = null;
+  let bestScore = 99;
+  for (const t of teachers) {
+    const dist = levenshtein(clean, t);
+    const first = t.split(/\s+/)[0];
+    const firstDist = levenshtein(clean, first);
+    const score = Math.min(dist, firstDist + 1);
+    if (score < bestScore) {
+      bestScore = score;
+      best = t;
+    }
+    if (clean.includes(first) || first.includes(clean)) {
+      return { name: t, matched: true };
+    }
+  }
+  if (best && bestScore <= 3) return { name: best, matched: true };
+  return { name: clean, matched: false };
+}
+
+function normalizeTeacherField(val) {
+  const parts = String(val || "").split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return { text: "", matched: true };
+  const out = [];
+  let allMatched = true;
+  for (const p of parts) {
+    const m = fuzzyMatchTeacher(p);
+    out.push(m.name);
+    if (!m.matched) allMatched = false;
+  }
+  return { text: out.join(" / "), matched: allMatched };
+}
+
 function getTeacherNameList() {
   return Object.keys(guruSchedules || {}).sort();
+}
+
+function normalizeBertugasRow(rowRaw) {
+  const row = String(rowRaw || "").trim().toUpperCase();
+  if (BERTUGAS_ROW_ALIASES[row]) return BERTUGAS_ROW_ALIASES[row];
+  const hit = BERTUGAS_ROWS.find((r) => row.includes(r) || r.includes(row));
+  if (hit) return hit;
+  const footer = BERTUGAS_FOOTER_ROWS.find((r) => row.includes(r) || r.includes(row));
+  return footer || null;
 }
 
 function normalizeBertugasKey(key) {
@@ -1943,11 +2028,101 @@ function normalizeBertugasKey(key) {
   const parts = key.split("|");
   if (parts.length !== 2) return null;
   const day = parts[0].trim().toUpperCase();
-  const row = parts[1].trim().toUpperCase();
+  const row = normalizeBertugasRow(parts[1]);
+  if (!row) return null;
   if (day === "ALL" && BERTUGAS_FOOTER_ROWS.includes(row)) return `ALL|${row}`;
   if (!DAYS.includes(day)) return null;
   if (BERTUGAS_ROWS.includes(row)) return `${day}|${row}`;
   return null;
+}
+
+function postProcessAiAssignments(assignments) {
+  const out = { ...assignments };
+  for (const day of DAYS) {
+    const k1 = `${day}|PAGAR WAKTU DATANG (MURID)`;
+    const k2 = `${day}|PAGAR (12.20 TENGAH HARI)`;
+    if (out[k1] && !out[k2]) out[k2] = out[k1];
+    if (out[k2] && !out[k1]) out[k1] = out[k2];
+  }
+  return out;
+}
+
+function processAiParseResult(parsed) {
+  const uncertain = new Set((parsed?.uncertain || []).map((k) => normalizeBertugasKey(k)).filter(Boolean));
+  const rawAssignments = parsed?.assignments || {};
+  const normalized = {};
+  const reviewRows = [];
+
+  for (const [rawKey, rawVal] of Object.entries(rawAssignments)) {
+    const key = normalizeBertugasKey(rawKey);
+    if (!key) continue;
+    const norm = normalizeTeacherField(rawVal);
+    if (!norm.text) continue;
+    normalized[key] = norm.text;
+    reviewRows.push({
+      key,
+      label: key.replace("|", " — "),
+      raw: String(rawVal || "").trim().toUpperCase(),
+      value: norm.text,
+      warn: uncertain.has(key) || !norm.matched || norm.text !== String(rawVal || "").trim().toUpperCase()
+    });
+  }
+
+  const assignments = postProcessAiAssignments(normalized);
+  for (const day of DAYS) {
+    const k1 = `${day}|PAGAR WAKTU DATANG (MURID)`;
+    const k2 = `${day}|PAGAR (12.20 TENGAH HARI)`;
+    if (assignments[k1] && assignments[k1] === assignments[k2]) {
+      const existing = reviewRows.find((r) => r.key === k2);
+      if (!existing && assignments[k2]) {
+        reviewRows.push({ key: k2, label: k2.replace("|", " — "), raw: assignments[k2], value: assignments[k2], warn: false });
+      }
+    }
+  }
+
+  reviewRows.sort((a, b) => a.key.localeCompare(b.key));
+  const warnCount = reviewRows.filter((r) => r.warn).length;
+  return { assignments, reviewRows, warnCount, weekStart: parsed?.weekStart || "" };
+}
+
+function showAiReviewModal(processed) {
+  pendingAiParse = processed;
+  const modal = document.getElementById("aiReviewModal");
+  const list = document.getElementById("aiReviewList");
+  const summary = document.getElementById("aiReviewSummary");
+  if (!modal || !list) return;
+
+  setText(summary, `${processed.reviewRows.length} slot dibaca — ${processed.warnCount} perlu semak (⚠).`);
+  list.replaceChildren();
+  for (const row of processed.reviewRows) {
+    const div = document.createElement("div");
+    div.className = `ai-review-row${row.warn ? " warn" : ""}`;
+    const slot = document.createElement("div");
+    slot.className = "ai-review-slot";
+    slot.textContent = `${row.warn ? "⚠ " : ""}${row.label}`;
+    const name = document.createElement("div");
+    name.className = "ai-review-name";
+    name.textContent = row.raw !== row.value ? `${row.value} (asal: ${row.raw})` : row.value;
+    div.appendChild(slot);
+    div.appendChild(name);
+    list.appendChild(div);
+  }
+  modal.classList.remove("hidden");
+}
+
+function closeAiReviewModal() {
+  document.getElementById("aiReviewModal")?.classList.add("hidden");
+  pendingAiParse = null;
+}
+
+function confirmAiReviewApply() {
+  if (!pendingAiParse) return;
+  const count = applyParsedBertugas({ assignments: pendingAiParse.assignments, weekStart: pendingAiParse.weekStart });
+  closeAiReviewModal();
+  setBertugasViewMode("digital");
+  activateTab("bertugas");
+  setAiParseStatus(`${count} slot digunakan.`);
+  showToast(`AI digunakan — ${count} slot. Semak di Admin jika masih ada salah.`);
 }
 
 function applyParsedBertugas(parsed) {
@@ -2076,11 +2251,16 @@ async function parseBertugasFromImage(dataUrl) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || `Ralat ${res.status}`);
 
-    const count = applyParsedBertugas(body.data);
-    setBertugasViewMode("digital");
+    const processed = processAiParseResult(body.data);
+    if (!processed.reviewRows.length) {
+      setAiParseStatus("");
+      showToast("AI tak jumpa nama dalam gambar. Cuba gambar lebih jelas atau isi manual.");
+      return false;
+    }
+    setAiParseStatus(`Semak ${processed.warnCount} slot ⚠`);
     activateTab("bertugas");
-    setAiParseStatus(`${count} slot diisi oleh AI.`);
-    showToast(`AI selesai — ${count} nama masuk jadual digital. Semak & betulkan jika perlu.`);
+    showAiReviewModal(processed);
+    showToast("AI selesai baca — semak hasil sebelum guna.");
     return true;
   } catch (err) {
     setAiParseStatus("");
@@ -2357,10 +2537,17 @@ function init() {
   });
 
   // Keyboard: Escape closes modals
+  document.getElementById("aiReviewCancel")?.addEventListener("click", closeAiReviewModal);
+  document.getElementById("aiReviewApply")?.addEventListener("click", confirmAiReviewApply);
+  document.getElementById("aiReviewModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "aiReviewModal") closeAiReviewModal();
+  });
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       document.getElementById("assignModal").classList.add("hidden");
       document.getElementById("guruPickerModal").classList.add("hidden");
+      closeAiReviewModal();
     }
   });
 
