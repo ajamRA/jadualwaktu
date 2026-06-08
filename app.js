@@ -13,7 +13,7 @@
      day-filtered exports, smart-assign refresh, absent ranges
    ============================================================ */
 
-const BUILD_ID = "Build 2026-06-08 WaTutup";
+const BUILD_ID = "Build 2026-06-08 BertugasDuty";
 const GROQ_PROXY = "/.netlify/functions/groq-bertugas";
 const BERTUGAS_CLOUD_GET = "/.netlify/functions/get-bertugas-live";
 const BERTUGAS_CLOUD_PUBLISH = "/.netlify/functions/publish-bertugas-live";
@@ -698,15 +698,78 @@ function isBlockedByRule(teacher, day, time) {
   return (reliefRules.blocklist || []).some((r) => r.toUpperCase() === token);
 }
 
-function isTeacherOnDutyAtSlot(teacher, day, time) {
-  if (reliefRules.includeDutyRule === false) return false;
+function normalizeTeacherToken(name) {
+  return String(name || "").trim().toUpperCase();
+}
+
+function cellHasTeacher(cell, teacher) {
+  const target = normalizeTeacherToken(teacher);
+  if (!target) return false;
+  return String(cell || "")
+    .toUpperCase()
+    .split("/")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .some((x) => x === target);
+}
+
+function getWeekMondayIso(dateStr) {
+  const { startDate } = getWeekDates(dateStr || todayIso());
+  return `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-${String(startDate.getDate()).padStart(2, "0")}`;
+}
+
+function isReliefDateInBertugasWeek(dateStr) {
+  const date = dateStr || currentReliefDate;
+  if (!date || !bertugasWeekDate) return true;
+  return getWeekMondayIso(date) === getWeekMondayIso(bertugasWeekDate);
+}
+
+function hasBertugasDutyData() {
+  return Object.keys(bertugasMap || {}).some((k) => k.includes("|") && String(bertugasMap[k] || "").trim());
+}
+
+function formatDutyLabel(row) {
+  if (!row) return "";
+  if (row.startsWith("KANTIN")) return `jaga kantin (${row.replace("KANTIN ", "")})`;
+  if (row.includes("PONDOK PENGAWAL")) return `pondok pengawal (${row.replace("PONDOK PENGAWAL ", "")})`;
+  if (row.includes("WAKTU DATANG") || row.includes("PAGAR")) return `pagar / waktu datang`;
+  if (row.includes("REHAT")) return `kawalan rehat`;
+  if (row.includes("KAWALAN")) return `kawalan murid`;
+  return row.toLowerCase();
+}
+
+function getTeacherDutyAtSlot(teacher, day, time) {
+  if (reliefRules.includeDutyRule === false) return "";
+  if (!isReliefDateInBertugasWeek()) return "";
+  if (!hasBertugasDutyData()) return "";
   const cfg = getBertugasConfig();
   for (const row of cfg.rows) {
-    const cell = (bertugasMap[`${day}|${row}`] || "").toUpperCase();
-    if (!cell.split("/").map((x) => x.trim()).includes(teacher.toUpperCase())) continue;
-    if ((cfg.dutyMap[row] || []).includes(time)) return true;
+    const cell = bertugasMap[`${day}|${row}`] || "";
+    if (!cellHasTeacher(cell, teacher)) continue;
+    if ((cfg.dutyMap[row] || []).includes(time)) return row;
   }
-  return false;
+  return "";
+}
+
+function isTeacherOnDutyAtSlot(teacher, day, time) {
+  return !!getTeacherDutyAtSlot(teacher, day, time);
+}
+
+function getBertugasDutyWarnings() {
+  const warnings = [];
+  if (reliefRules.includeDutyRule === false) {
+    warnings.push("Tetapan relief: jadual bertugas TIDAK dikira (nyahaktifkan di Tetapan Relief).");
+    return warnings;
+  }
+  if (!hasBertugasDutyData()) {
+    warnings.push("Jadual bertugas kosong — muat dari tab Bertugas / Simpan Cloud supaya guru kantin & pagar ditapis.");
+    return warnings;
+  }
+  if (currentReliefDate && !isReliefDateInBertugasWeek()) {
+    const week = getWeekDates(bertugasWeekDate);
+    warnings.push(`Tarikh relief luar minggu bertugas (${week.start}–${week.end}). Kemaskini minggu di tab Bertugas.`);
+  }
+  return warnings;
 }
 
 function getTeacherSlotsOnDay(teacher, day) {
@@ -767,7 +830,8 @@ function getIneligibilityReason(teacher, day, time, excludeSet, excludeAssignKey
     if (cls) return `${teacher}: ada kelas (${cls}) pada ${time}.`;
     return `${teacher}: tak free pada ${time}.`;
   }
-  if (isTeacherOnDutyAtSlot(teacher, day, time)) return `${teacher}: sedang bertugas pada ${time}.`;
+  const duty = getTeacherDutyAtSlot(teacher, day, time);
+  if (duty) return `${teacher}: sedang ${formatDutyLabel(duty)} pada ${time}.`;
   if (isBlockedByRule(teacher, day, time)) return `${teacher}: diblock oleh tetapan relief.`;
   const dailyCounts = getAssignedCountByTeacherDay();
   const maxPerDay = Number(reliefRules.maxPerDay || 2);
@@ -1530,6 +1594,15 @@ function renderAvailableTeachers() {
     wrap.appendChild(chip);
   });
   if (!eligible.length) wrap.innerHTML = "<div class='hint'>Tiada cikgu available untuk slot ini.</div>";
+  const onDuty = getAllTeachers()
+    .filter((t) => !excludeSet.has(t) && getTeacherDutyAtSlot(t, day, time))
+    .slice(0, 8);
+  if (onDuty.length) {
+    const dutyBox = document.createElement("div");
+    dutyBox.className = "duty-box";
+    dutyBox.textContent = `Sedang bertugas pada ${time}: ${onDuty.map((t) => `${t} (${formatDutyLabel(getTeacherDutyAtSlot(t, day, time))})`).join(", ")}`;
+    wrap.appendChild(dutyBox);
+  }
   renderIneligibleTeachers(wrap, day, time, excludeSet, eligible, slotAssignKey);
 }
 
@@ -1667,23 +1740,24 @@ function renderReliefDateWarning() {
   if (!el) return;
   const day = getReliefDay();
   const activeAbsent = getAbsentTeachersForCurrentDate();
+  const warnings = [];
   if (!currentReliefDate) {
     el.textContent = "";
     el.classList.add("hidden");
     return;
   }
-  if (!day) {
-    el.textContent = `${formatReliefDateLabel(currentReliefDate)} — hujung minggu. Relief hanya untuk Isnin–Jumaat.`;
-    el.classList.remove("hidden");
-    return;
-  }
+  if (!day) warnings.push(`${formatReliefDateLabel(currentReliefDate)} — hujung minggu. Relief hanya untuk Isnin–Jumaat.`);
   if (absentTeachers.size && !activeAbsent.length) {
-    el.textContent = `${absentTeachers.size} guru ditanda, tapi tarikh cuti tidak cover ${formatReliefDateLabel(currentReliefDate)}. Kemaskini Mula/Sampai di bawah.`;
-    el.classList.remove("hidden");
+    warnings.push(`${absentTeachers.size} guru ditanda, tapi tarikh cuti tidak cover ${formatReliefDateLabel(currentReliefDate)}. Kemaskini Mula/Sampai di bawah.`);
+  }
+  warnings.push(...getBertugasDutyWarnings());
+  if (!warnings.length) {
+    el.textContent = "";
+    el.classList.add("hidden");
     return;
   }
-  el.textContent = "";
-  el.classList.add("hidden");
+  el.textContent = warnings.join(" ");
+  el.classList.remove("hidden");
 }
 
 function renderReliefUi() {

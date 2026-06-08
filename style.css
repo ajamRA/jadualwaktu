@@ -736,6 +736,16 @@ code {
   opacity: 0.55;
   text-decoration: line-through;
 }
+.duty-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
 
 .ineligible-box {
   margin-top: 8px;
